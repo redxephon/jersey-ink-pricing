@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { DECO_TYPES, estimateDecoCogs, getDecoParamOptions, getDefaultDecoParam } from "./decoCostEstimator";
+import { DECO_TYPES, estimateDecoCogs, getDecoParamOptions, getDefaultDecoParam, decoCogsTooltip } from "./decoCostEstimator";
 
 const DEFAULT_SETTINGS = {
   jiFeePct: 15,
@@ -198,7 +198,8 @@ export default function WebstoreCalculator() {
       const effectiveCogs = item.decoType === "custom" || !item.decoType
         ? item.decoCogs
         : estimateDecoCogs(item.decoType, item.decoParam, item.qty, totalQty) ?? item.decoCogs;
-      return { item, calc: calcItem({ ...item, decoCogs: effectiveCogs }, settings), effectiveCogs };
+      const cogsTooltip = decoCogsTooltip(item.decoType, item.decoParam, item.qty, totalQty, effectiveCogs);
+      return { item, calc: calcItem({ ...item, decoCogs: effectiveCogs }, settings), effectiveCogs, cogsTooltip };
     });
   }, [items, settings]);
 
@@ -591,12 +592,14 @@ export default function WebstoreCalculator() {
                 <th style={{ textAlign: "left", width: 100 }}>Location</th>
                 {!isClient && (
                   <>
-                    <th style={{ textAlign: "center", width: 150 }}>
-                      <div>Deco</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>COGS</div>
+                    <th style={{ textAlign: "center", width: 190 }}>
+                      <div>Deco COGS</div>
                     </th>
-                    <th style={{ textAlign: "right", width: 72 }}>
-                      <div>Deco</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>Price</div>
-                    </th>
+                    {showBreakdown && (
+                      <th style={{ textAlign: "right", width: 64 }}>
+                        <div>Deco</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>Price</div>
+                      </th>
+                    )}
                     <th style={{ textAlign: "right", width: 72 }}>Apparel $</th>
                   </>
                 )}
@@ -631,7 +634,7 @@ export default function WebstoreCalculator() {
               </tr>
             </thead>
             <tbody>
-              {calculated.map(({ item, calc, effectiveCogs }) => {
+              {calculated.map(({ item, calc, effectiveCogs, cogsTooltip }) => {
                 if (isClient && item.qty === 0) return null;
                 return (
                   <tr key={item.id} className={rowHealthClass(calc.marginPct, item.qty)} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
@@ -678,69 +681,62 @@ export default function WebstoreCalculator() {
                     </td>
                     {!isClient && (
                       <>
-                        <td style={{ padding: "4px 4px", minWidth: 150 }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                            <div style={{ display: "flex", gap: 2 }}>
+                        <td style={{ padding: "4px 4px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <select
+                              value={item.decoType || "custom"}
+                              onChange={(e) => updateDecoType(item.id, e.target.value)}
+                              className="rf-select"
+                              style={{ padding: "2px 2px", fontSize: 11, width: 46, flexShrink: 0 }}
+                            >
+                              {DECO_TYPES.map((dt) => (
+                                <option key={dt.key} value={dt.key}>{dt.label}</option>
+                              ))}
+                            </select>
+                            {item.decoType && item.decoType !== "custom" && (
                               <select
-                                value={item.decoType || "custom"}
-                                onChange={(e) => updateDecoType(item.id, e.target.value)}
+                                value={item.decoParam ?? ""}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  updateDecoParam(item.id, item.decoType === "emb" ? Number(v) : item.decoType === "sp" ? Number(v) : v);
+                                }}
                                 className="rf-select"
-                                style={{ padding: "1px 2px", fontSize: 11, flex: "0 0 auto", width: 48 }}
+                                style={{ padding: "2px 2px", fontSize: 11, width: 68, flexShrink: 0 }}
                               >
-                                {DECO_TYPES.map((dt) => (
-                                  <option key={dt.key} value={dt.key}>{dt.label}</option>
+                                {getDecoParamOptions(item.decoType || "custom").map((opt) => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                                 ))}
                               </select>
-                              {item.decoType && item.decoType !== "custom" && (
-                                <select
-                                  value={item.decoParam ?? ""}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    updateDecoParam(item.id, item.decoType === "emb" ? Number(v) : item.decoType === "sp" ? Number(v) : v);
-                                  }}
-                                  className="rf-select"
-                                  style={{ padding: "1px 2px", fontSize: 11, flex: 1, minWidth: 0 }}
-                                >
-                                  {getDecoParamOptions(item.decoType || "custom").map((opt) => (
-                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                  ))}
-                                </select>
-                              )}
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                              {(item.decoType === "custom" || !item.decoType) ? (
-                                <input
-                                  type="number"
-                                  value={item.decoCogs}
-                                  onChange={(e) => updateItem(item.id, "decoCogs", parseFloat(e.target.value) || 0)}
-                                  step={0.01}
-                                  min={0}
-                                  className="field-editable-blue"
-                                  style={{ width: "100%", padding: "2px 4px", textAlign: "right", fontSize: 12, fontWeight: 600 }}
-                                />
-                              ) : (
-                                <>
-                                  <span className="tnum" style={{ flex: 1, textAlign: "right", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", padding: "2px 4px" }}>
-                                    {fmt(effectiveCogs)}
-                                  </span>
-                                  <button
-                                    onClick={() => {
-                                      setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, decoType: "custom", decoParam: null, decoCogs: effectiveCogs } : it));
-                                    }}
-                                    className="btn-ghost"
-                                    style={{ width: 16, height: 16, fontSize: 10, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 2, color: "var(--text-muted)", flexShrink: 0 }}
-                                    title="Switch to manual override"
-                                  >
-                                    &#9998;
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                            )}
+                            {(item.decoType === "custom" || !item.decoType) ? (
+                              <input
+                                type="number"
+                                value={item.decoCogs}
+                                onChange={(e) => updateItem(item.id, "decoCogs", parseFloat(e.target.value) || 0)}
+                                step={0.01}
+                                min={0}
+                                className="field-editable-blue"
+                                style={{ width: 62, padding: "2px 4px", textAlign: "right", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
+                              />
+                            ) : (
+                              <span
+                                className="tnum"
+                                title={cogsTooltip}
+                                style={{ width: 62, textAlign: "right", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", padding: "2px 4px", cursor: "help", flexShrink: 0, borderBottom: "1px dashed var(--border-medium)" }}
+                                onClick={() => {
+                                  setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, decoType: "custom", decoParam: null, decoCogs: effectiveCogs } : it));
+                                }}
+                              >
+                                {fmt(effectiveCogs)}
+                              </span>
+                            )}
                           </div>
                         </td>
-                        <td className="field-readonly" style={{ padding: "4px 6px", textAlign: "right", fontSize: 13 }}>
-                          {fmt(calc.decoPrice)}
-                        </td>
+                        {showBreakdown && (
+                          <td className="field-readonly tnum" style={{ padding: "4px 6px", textAlign: "right", fontSize: 12 }}>
+                            {fmt(calc.decoPrice)}
+                          </td>
+                        )}
                         <td style={{ padding: "4px 6px" }}>
                           <input
                             type="number"
@@ -831,7 +827,7 @@ export default function WebstoreCalculator() {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={isClient ? 3 : (showBreakdown ? 12 : 10)} style={{ textAlign: "right", fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Totals</td>
+                <td colSpan={isClient ? 3 : (showBreakdown ? 12 : 9)} style={{ textAlign: "right", fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Totals</td>
                 <td className="tnum" style={{ textAlign: "center", fontSize: 12, color: "var(--text-secondary)" }}>{totals.qty}</td>
                 <td className="tnum" style={{ textAlign: "right", fontSize: 12, color: "var(--text-secondary)" }}>{fmt(totals.revenue)}</td>
                 {!isClient && <td className="tnum" style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--ji-green)" }}>{fmt(totals.jiGross)}</td>}

@@ -101,3 +101,34 @@ export function getDefaultDecoParam(decoType) {
   if (decoType === "dtf") return "standard";
   return null;
 }
+
+/**
+ * Build a human-readable tooltip explaining how the COGS was calculated.
+ */
+export function decoCogsTooltip(decoType, decoParam, qty, amortQty, result) {
+  if (decoType === "custom" || !decoType || result == null) return "";
+  const r = result.toFixed(2);
+
+  if (decoType === "sp") {
+    const screenIdx = Math.max(0, Math.min(5, (decoParam || 1) - 1));
+    const { setup, variable } = SP_COST_PARAMS[screenIdx];
+    const effectiveAmort = Math.max(amortQty, 12);
+    return `SP ${decoParam} scr: $${setup.toFixed(2)} setup ÷ ${effectiveAmort} units + $${variable.toFixed(4)} var = $${r}`;
+  }
+
+  if (decoType === "emb") {
+    const tierIdx = Math.max(0, Math.min(17, decoParam || 0));
+    const stitchCount = STITCH_TIER_MIDPOINTS[tierIdx];
+    const effectiveQty = Math.max(qty, 1);
+    const sellPrice = lookupEmbPrice(stitchCount, effectiveQty, DEFAULT_EMB_PRICES, EMB_STITCH_TIERS, EMB_QTY_TIERS, EMB_OVERFLOW_RATE);
+    return `EMB ${EMB_STITCH_TIERS[tierIdx].label} @ ${effectiveQty} qty: $${sellPrice.toFixed(2)} sell × 0.45 = $${r}`;
+  }
+
+  if (decoType === "dtf") {
+    const preset = DTF_SIZE_PRESETS.find((p) => p.key === decoParam);
+    const label = preset ? preset.label : "Standard";
+    return `DTF ${label}: $${r} supplier cost`;
+  }
+
+  return "";
+}
