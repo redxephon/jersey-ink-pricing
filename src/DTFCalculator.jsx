@@ -1,9 +1,11 @@
 import { useState, useMemo } from "react";
 import {
   DTF_SIZE_PRESETS, DEFAULT_COST_PER_SQ_IN, DEFAULT_DTF_MARKUP,
-  DEFAULT_PRESS_TIME_SEC, DEFAULT_DTF_SETUP_MIN, DEFAULT_QTY_DISCOUNTS,
+  DEFAULT_PRESS_CYCLE_SEC, DEFAULT_DTF_SETUP_MIN, DEFAULT_QTY_DISCOUNTS,
   DEFAULT_SUPPLIER_SHIPPING, DEFAULT_SETUP_ART_FEE, DEFAULT_WASTE_PCT,
-  DTF_QTY_TIERS, MARKUP_PRESETS, calcDTFPrice, calcDTFTime, buildDTFRateCard,
+  DEFAULT_SMALL_ORDER_FEE, SMALL_ORDER_THRESHOLD,
+  DTF_QTY_TIERS, MARKUP_PRESETS, GARMENT_PRESETS, GANG_SHEET_SIZES,
+  calcDTFPrice, calcDTFTime, buildDTFRateCard, calcGangSheetCost,
 } from "./dtfPricing";
 import { calcJobScore, calcShopRates } from "./jobAnalysis";
 import ProfitAlerts from "./ProfitAlerts";
@@ -23,36 +25,57 @@ export default function DTFCalculator({ shopEconomics }) {
   });
   const [costPerSqIn, setCostPerSqIn] = useState(DEFAULT_COST_PER_SQ_IN);
   const [qtyDiscounts, setQtyDiscounts] = useState(() => DEFAULT_QTY_DISCOUNTS.map((d) => ({ ...d })));
-  const [pressTimeSec, setPressTimeSec] = useState(DEFAULT_PRESS_TIME_SEC);
+  const [pressCycleSec, setPressCycleSec] = useState(DEFAULT_PRESS_CYCLE_SEC);
   const [setupMinutes, setSetupMinutes] = useState(DEFAULT_DTF_SETUP_MIN);
   const [garmentCost, setGarmentCost] = useState(0);
   const [garmentMarkup, setGarmentMarkup] = useState(0);
   const [activeTab, setActiveTab] = useState("card");
   const [targetHourlyRate, setTargetHourlyRate] = useState(75);
-  // New features
   const [shippingPerUnit, setShippingPerUnit] = useState(DEFAULT_SUPPLIER_SHIPPING);
   const [rushPct, setRushPct] = useState(0);
   const [setupArtFee, setSetupArtFee] = useState(DEFAULT_SETUP_ART_FEE);
   const [wastePct, setWastePct] = useState(DEFAULT_WASTE_PCT);
   const [numPlacements, setNumPlacements] = useState(1);
+  const [smallOrderFee, setSmallOrderFee] = useState(DEFAULT_SMALL_ORDER_FEE);
+  const [enableSmallOrderFee, setEnableSmallOrderFee] = useState(true);
+  const [customerDiscountPct, setCustomerDiscountPct] = useState(0);
+  // Gang sheet
+  const [showGangSheet, setShowGangSheet] = useState(false);
+  const [gangSheetIdx, setGangSheetIdx] = useState(0);
+  // Rate card garment inclusion
+  const [rateCardIncludeGarment, setRateCardIncludeGarment] = useState(false);
 
   const isCustom = sizePreset === "custom";
   const currentPreset = DTF_SIZE_PRESETS.find((p) => p.key === sizePreset);
+
+  const transferW = isCustom ? customW : (currentPreset?.w ?? 10);
+  const transferH = isCustom ? customH : (currentPreset?.h ?? 10);
 
   const transferCost = useMemo(() => {
     if (isCustom) return customW * customH * costPerSqIn;
     return supplierCosts[sizePreset] ?? currentPreset?.cost ?? 3.50;
   }, [isCustom, customW, customH, costPerSqIn, sizePreset, supplierCosts, currentPreset]);
 
+  // Gang sheet calculation
+  const gangSheet = GANG_SHEET_SIZES[gangSheetIdx];
+  const gangSheetInfo = useMemo(() => {
+    if (!gangSheet) return null;
+    return calcGangSheetCost(gangSheet.w, gangSheet.h, transferW, transferH);
+  }, [gangSheet, transferW, transferH]);
+
+  const isSmallOrder = qty < SMALL_ORDER_THRESHOLD;
+  const effectiveSmallOrderFee = (isSmallOrder && enableSmallOrderFee) ? smallOrderFee : 0;
+
   const pricingOpts = useMemo(() => ({
     shippingPerUnit, rushPct, setupArtFee, wastePct, numPlacements,
-  }), [shippingPerUnit, rushPct, setupArtFee, wastePct, numPlacements]);
+    smallOrderFee: effectiveSmallOrderFee, customerDiscountPct,
+  }), [shippingPerUnit, rushPct, setupArtFee, wastePct, numPlacements, effectiveSmallOrderFee, customerDiscountPct]);
 
   const pricing = useMemo(() => {
     return calcDTFPrice(transferCost, qty, markup, garmentCost, garmentMarkup, qtyDiscounts, pricingOpts);
   }, [transferCost, qty, markup, garmentCost, garmentMarkup, qtyDiscounts, pricingOpts]);
 
-  const time = useMemo(() => calcDTFTime(qty, pressTimeSec, setupMinutes, numPlacements), [qty, pressTimeSec, setupMinutes, numPlacements]);
+  const time = useMemo(() => calcDTFTime(qty, pressCycleSec, setupMinutes, numPlacements), [qty, pressCycleSec, setupMinutes, numPlacements]);
 
   const totalProfit = pricing.profitPerUnit * qty;
   const dollarsPerHour = time.totalHours > 0 ? totalProfit / time.totalHours : 0;
@@ -63,9 +86,13 @@ export default function DTFCalculator({ shopEconomics }) {
 
   const shopRates = useMemo(() => calcShopRates(shopEconomics), [shopEconomics]);
 
+  const garmentSell = garmentCost * (1 + garmentMarkup / 100);
+
   const rateCard = useMemo(() => {
-    return buildDTFRateCard(supplierCosts, markup, qtyDiscounts, { wastePct, numPlacements });
-  }, [supplierCosts, markup, qtyDiscounts, wastePct, numPlacements]);
+    return buildDTFRateCard(supplierCosts, markup, qtyDiscounts, {
+      wastePct, numPlacements, garmentSell: rateCardIncludeGarment ? garmentSell : 0,
+    });
+  }, [supplierCosts, markup, qtyDiscounts, wastePct, numPlacements, rateCardIncludeGarment, garmentSell]);
 
   const activeQtyCol = useMemo(() => {
     for (let i = DTF_QTY_TIERS.length - 1; i >= 0; i--) {
@@ -78,13 +105,15 @@ export default function DTFCalculator({ shopEconomics }) {
 
   const minProfitableQty = useMemo(() => {
     for (let q = 1; q <= 1000; q++) {
-      const p = calcDTFPrice(transferCost, q, markup, garmentCost, garmentMarkup, qtyDiscounts, pricingOpts);
-      const t = calcDTFTime(q, pressTimeSec, setupMinutes, numPlacements);
+      const soFee = (q < SMALL_ORDER_THRESHOLD && enableSmallOrderFee) ? smallOrderFee : 0;
+      const p = calcDTFPrice(transferCost, q, markup, garmentCost, garmentMarkup, qtyDiscounts,
+        { ...pricingOpts, smallOrderFee: soFee });
+      const t = calcDTFTime(q, pressCycleSec, setupMinutes, numPlacements);
       const profit = p.profitPerUnit * q;
       if (t.totalHours > 0 && profit / t.totalHours >= targetHourlyRate) return q;
     }
     return null;
-  }, [transferCost, markup, garmentCost, garmentMarkup, qtyDiscounts, pressTimeSec, setupMinutes, targetHourlyRate, pricingOpts, numPlacements]);
+  }, [transferCost, markup, garmentCost, garmentMarkup, qtyDiscounts, pressCycleSec, setupMinutes, targetHourlyRate, pricingOpts, numPlacements, enableSmallOrderFee, smallOrderFee]);
 
   const updateDiscount = (idx, field, value) => {
     setQtyDiscounts((prev) => {
@@ -94,7 +123,8 @@ export default function DTFCalculator({ shopEconomics }) {
     });
   };
 
-  const isSmallOrder = qty < 12;
+  // Quote price = what the customer pays per unit, all-in
+  const quotePrice = pricing.sellPerUnit;
 
   return (
     <>
@@ -174,24 +204,48 @@ export default function DTFCalculator({ shopEconomics }) {
               className="field-editable" style={{ width: 60, padding: "7px 10px", textAlign: "center", fontSize: 14, fontWeight: 600 }} />
           </div>
           <div style={{ width: 1, height: 32, background: "var(--border-subtle)", alignSelf: "flex-end" }} />
+          {/* Garment presets */}
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Garment</label>
+            <select
+              className="rf-select"
+              value=""
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setGarmentCost(val);
+                if (val > 0 && garmentMarkup === 0) setGarmentMarkup(40);
+              }}
+              style={{ padding: "7px 8px", fontSize: 12, minWidth: 130 }}
+            >
+              <option value="" disabled>Quick pick...</option>
+              {GARMENT_PRESETS.map((g) => (
+                <option key={g.label} value={g.cost}>{g.label}{g.cost > 0 ? ` (${fmt(g.cost)})` : ""}</option>
+              ))}
+            </select>
+          </div>
           <label className="flex items-center gap-1.5 select-none" style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>Garment $</span>
+            <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>$</span>
             <input type="number" min={0} step={0.01} value={garmentCost || ""} placeholder="0.00"
               onChange={(e) => setGarmentCost(Math.max(0, Number(e.target.value)))}
-              className="field-editable" style={{ width: 80, padding: "3px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }} />
+              className="field-editable" style={{ width: 70, padding: "3px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }} />
           </label>
           <label className="flex items-center gap-1.5 select-none" style={{ fontSize: 12, color: "var(--text-muted)" }}>
             <span>Markup</span>
             <input type="number" min={0} step={1} value={garmentMarkup || ""} placeholder="0"
               onChange={(e) => setGarmentMarkup(Math.max(0, Number(e.target.value)))}
-              className="field-editable" style={{ width: 56, padding: "3px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }} />
+              className="field-editable" style={{ width: 50, padding: "3px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }} />
             <span>%</span>
           </label>
+          {garmentCost > 0 && (
+            <span className="tnum" style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 500 }}>
+              = {fmt(garmentSell)}/ea
+            </span>
+          )}
         </div>
 
-        {/* Markup Guide + Rush + Fees row */}
+        {/* Markup Guide + Rush */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2" style={{ fontSize: 12, color: "var(--text-muted)" }}>
-          <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>Markup Guide:</span>
+          <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>Markup:</span>
           {MARKUP_PRESETS.map((p) => (
             <button
               key={p.label}
@@ -207,9 +261,7 @@ export default function DTFCalculator({ shopEconomics }) {
               {p.label} ({p.pct}%)
             </button>
           ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2" style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          <span style={{ color: "var(--border-medium)" }}>|</span>
           <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>Rush:</span>
           {[
             { label: "None", value: 0 },
@@ -220,7 +272,7 @@ export default function DTFCalculator({ shopEconomics }) {
               key={opt.value}
               onClick={() => setRushPct(opt.value)}
               style={{
-                padding: "3px 10px", borderRadius: "var(--radius-sm)", fontSize: 11, cursor: "pointer",
+                padding: "2px 8px", borderRadius: "var(--radius-sm)", fontSize: 11, cursor: "pointer",
                 border: rushPct === opt.value ? "1px solid var(--fund-amber)" : "1px solid var(--border-subtle)",
                 background: rushPct === opt.value ? "rgba(251, 191, 36, 0.1)" : "transparent",
                 color: rushPct === opt.value ? "var(--fund-amber)" : "var(--text-muted)",
@@ -230,28 +282,61 @@ export default function DTFCalculator({ shopEconomics }) {
               {opt.label}
             </button>
           ))}
-          <span style={{ color: "var(--border-medium)" }}>|</span>
+        </div>
+
+        {/* Fees row */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2" style={{ fontSize: 12, color: "var(--text-muted)" }}>
           <label className="flex items-center gap-1.5 select-none">
-            <span>Setup/Art $</span>
+            <span style={{ fontWeight: 500 }}>Setup/Art $</span>
             <input type="number" min={0} step={5} value={setupArtFee}
               onChange={(e) => setSetupArtFee(Math.max(0, Number(e.target.value)))}
               className="field-editable" style={{ width: 60, padding: "3px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }} />
           </label>
           <label className="flex items-center gap-1.5 select-none">
-            <span>Shipping/unit $</span>
+            <span style={{ fontWeight: 500 }}>Shipping/unit $</span>
             <input type="number" min={0} step={0.05} value={shippingPerUnit}
               onChange={(e) => setShippingPerUnit(Math.max(0, Number(e.target.value)))}
               className="field-editable" style={{ width: 60, padding: "3px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }} />
           </label>
+          <span style={{ color: "var(--border-medium)" }}>|</span>
+          <label className="flex items-center gap-1.5 select-none">
+            <span style={{ fontWeight: 500 }}>Customer Vol Discount</span>
+            <input type="number" min={0} max={50} step={5} value={customerDiscountPct}
+              onChange={(e) => setCustomerDiscountPct(Math.max(0, Math.min(50, Number(e.target.value))))}
+              className="field-editable" style={{ width: 50, padding: "3px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }} />
+            <span>%</span>
+          </label>
         </div>
 
-        {/* Small Order Warning */}
+        {/* Small Order Fee */}
         {isSmallOrder && (
-          <div className="alert-warn mt-3 p-2 flex items-center gap-2" style={{ fontSize: 12 }}>
-            <span style={{ fontWeight: 700 }}>Small Order</span>
-            <span>Orders under 12 units may not meet supplier minimums. Consider adding a small order surcharge or increasing markup.</span>
+          <div className="alert-warn mt-3 p-2 flex items-center gap-3" style={{ fontSize: 12 }}>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none" style={{ fontWeight: 700 }}>
+              <input type="checkbox" checked={enableSmallOrderFee} onChange={(e) => setEnableSmallOrderFee(e.target.checked)} className="rf-check" />
+              Small Order Fee
+            </label>
+            {enableSmallOrderFee && (
+              <>
+                <span>$</span>
+                <input type="number" min={0} step={5} value={smallOrderFee}
+                  onChange={(e) => setSmallOrderFee(Math.max(0, Number(e.target.value)))}
+                  className="field-editable" style={{ width: 60, padding: "2px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }} />
+                <span style={{ color: "var(--text-muted)" }}>added to order (under {SMALL_ORDER_THRESHOLD} units)</span>
+              </>
+            )}
+            {!enableSmallOrderFee && <span>Orders under {SMALL_ORDER_THRESHOLD} units — consider adding a surcharge</span>}
           </div>
         )}
+
+        {/* QUOTE PRICE — prominent customer-facing number */}
+        <div className="panel-inset panel-inset-green p-3 mt-4" style={{ textAlign: "center" }}>
+          <div className="kpi-label mb-1">Quote This Price</div>
+          <div className="kpi-value" style={{ color: "var(--ji-green)", fontSize: 36 }}>{fmt(quotePrice)}</div>
+          <div className="tnum" style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+            per unit, all-in (transfer + garment + fees)
+            {rushPct > 0 && <span style={{ color: "var(--fund-amber)" }}> +{rushPct}% rush</span>}
+          </div>
+        </div>
 
         {/* Results */}
         <div className="results-grid mt-4">
@@ -271,22 +356,13 @@ export default function DTFCalculator({ shopEconomics }) {
           </div>
 
           <div className="panel-inset p-3 text-right">
-            <div className="kpi-label mb-1">Per Transfer Cost</div>
+            <div className="kpi-label mb-1">Transfer Cost</div>
             <div className="tnum" style={{ fontSize: 18, fontWeight: 600, color: "var(--text-secondary)" }}>{fmt(pricing.totalTransferCost)}</div>
             <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-              {pricing.discountPct > 0 && <span style={{ color: "var(--ji-green)" }}>{pricing.discountPct}% vol </span>}
+              {pricing.discountPct > 0 && <span style={{ color: "var(--ji-green)" }}>-{pricing.discountPct}% supplier </span>}
               {wastePct > 0 && <span>+{wastePct}% waste </span>}
               {numPlacements > 1 && <span>×{numPlacements} </span>}
-            </div>
-          </div>
-
-          <div className="panel-inset p-3 text-right">
-            <div className="kpi-label mb-1">Per Unit Sell</div>
-            <div className="kpi-value" style={{ color: "var(--ji-green)" }}>{fmt(pricing.sellPerUnit)}</div>
-            <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-              {fmt(pricing.sellPerTransfer)} transfer
-              {pricing.garmentSell > 0 && <> + {fmt(pricing.garmentSell)} garment</>}
-              {rushPct > 0 && <> +{rushPct}% rush</>}
+              {shippingPerUnit > 0 && <span>+{fmt(shippingPerUnit)} ship</span>}
             </div>
           </div>
 
@@ -294,7 +370,9 @@ export default function DTFCalculator({ shopEconomics }) {
             <div className="kpi-label">Order Total</div>
             <div className="tnum" style={{ fontSize: 22, fontWeight: 700, color: "var(--ji-green)" }}>{fmt(pricing.orderTotal)}</div>
             <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-              {qty} units{setupArtFee > 0 && <> + {fmt(setupArtFee)} setup</>}
+              {qty} × {fmt(quotePrice)}
+              {setupArtFee > 0 && <> + {fmt(setupArtFee)} setup</>}
+              {effectiveSmallOrderFee > 0 && <> + {fmt(effectiveSmallOrderFee)} sm.order</>}
             </div>
           </div>
 
@@ -307,7 +385,7 @@ export default function DTFCalculator({ shopEconomics }) {
               {pricing.marginPct.toFixed(1)}%
             </div>
             <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-              {fmt(pricing.profitPerUnit)}/unit profit
+              {fmt(pricing.profitPerUnit)}/unit
             </div>
           </div>
 
@@ -323,12 +401,11 @@ export default function DTFCalculator({ shopEconomics }) {
               {fmt(dollarsPerHour)}
             </div>
             <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-              ~{time.totalMinutes.toFixed(0)}min
+              ~{time.totalMinutes.toFixed(0)}min ({pressCycleSec}s/pc)
             </div>
           </div>
         </div>
 
-        {/* Profit Alerts */}
         <ProfitAlerts
           dollarsPerHour={dollarsPerHour}
           targetHourlyRate={targetHourlyRate}
@@ -337,6 +414,102 @@ export default function DTFCalculator({ shopEconomics }) {
           currentQty={qty}
           currentHourlyEarning={dollarsPerHour}
         />
+      </div>
+
+      {/* Gang Sheet Calculator */}
+      <div className="panel p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="section-label">Gang Sheet Calculator</h2>
+          <button
+            onClick={() => setShowGangSheet(!showGangSheet)}
+            className="btn" style={{ fontSize: 11, padding: "4px 12px" }}
+          >
+            {showGangSheet ? "Hide" : "Show"}
+          </button>
+        </div>
+        {showGangSheet && (
+          <div>
+            <div className="flex flex-wrap items-end gap-4 mb-3">
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Sheet Size</label>
+                <div className="flex gap-2">
+                  {GANG_SHEET_SIZES.map((gs, i) => (
+                    <button
+                      key={gs.label}
+                      onClick={() => setGangSheetIdx(i)}
+                      style={{
+                        padding: "5px 10px", borderRadius: "var(--radius-sm)", fontSize: 12, cursor: "pointer",
+                        border: gangSheetIdx === i ? "1px solid var(--client-blue)" : "1px solid var(--border-medium)",
+                        background: gangSheetIdx === i ? "rgba(96, 165, 250, 0.1)" : "var(--bg-surface)",
+                        color: gangSheetIdx === i ? "var(--client-blue)" : "var(--text-muted)",
+                        fontWeight: gangSheetIdx === i ? 600 : 400,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>{gs.label}</div>
+                      <div style={{ fontSize: 10, opacity: 0.7 }}>{fmt(gs.cost)}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {gangSheetInfo && (
+              <div className="panel-inset panel-inset-blue p-3">
+                <div className="flex flex-wrap gap-6" style={{ fontSize: 13 }}>
+                  <div>
+                    <div className="kpi-label">Transfers per Sheet</div>
+                    <div className="tnum" style={{ fontSize: 20, fontWeight: 700, color: "var(--client-blue)" }}>
+                      {gangSheetInfo.fits}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      {transferW}"×{transferH}" on {gangSheet.label}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="kpi-label">Cost per Transfer</div>
+                    <div className="tnum" style={{ fontSize: 20, fontWeight: 700, color: "var(--ji-green)" }}>
+                      {gangSheetInfo.fits > 0 ? fmt(gangSheetInfo.costPerTransfer) : "N/A"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      vs {fmt(transferCost)} individual
+                    </div>
+                  </div>
+                  <div>
+                    <div className="kpi-label">Savings</div>
+                    <div className="tnum" style={{ fontSize: 20, fontWeight: 700, color: gangSheetInfo.costPerTransfer < transferCost ? "var(--ji-green)" : "var(--warn-red)" }}>
+                      {gangSheetInfo.fits > 0 && transferCost > 0
+                        ? `${(((transferCost - gangSheetInfo.costPerTransfer) / transferCost) * 100).toFixed(0)}%`
+                        : "—"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      vs individual pricing
+                    </div>
+                  </div>
+                  <div>
+                    <div className="kpi-label">Sheet Waste</div>
+                    <div className="tnum" style={{ fontSize: 20, fontWeight: 700, color: gangSheetInfo.wastePercent > 25 ? "var(--fund-amber)" : "var(--text-secondary)" }}>
+                      {gangSheetInfo.wastePercent.toFixed(0)}%
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      unused area
+                    </div>
+                  </div>
+                  {qty > 0 && gangSheetInfo.fits > 0 && (
+                    <div>
+                      <div className="kpi-label">Sheets Needed</div>
+                      <div className="tnum" style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>
+                        {Math.ceil((qty * numPlacements) / gangSheetInfo.fits)}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                        for {qty} units{numPlacements > 1 && ` × ${numPlacements} placements`}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Sub-tabs */}
@@ -365,6 +538,16 @@ export default function DTFCalculator({ shopEconomics }) {
       {/* Rate Card */}
       {activeTab === "card" && (
         <div className="panel overflow-hidden mb-4">
+          <div className="flex items-center justify-between px-3 pt-3">
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              Sell price per unit{rateCardIncludeGarment && garmentCost > 0 ? ` (incl. garment ${fmt(garmentSell)})` : ""}
+              {setupArtFee > 0 && " + setup fee"}
+            </div>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none" style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              <input type="checkbox" checked={rateCardIncludeGarment} onChange={(e) => setRateCardIncludeGarment(e.target.checked)} className="rf-check" />
+              Include garment
+            </label>
+          </div>
           <div className="overflow-x-auto">
             <table className="rf-table">
               <thead>
@@ -433,12 +616,13 @@ export default function DTFCalculator({ shopEconomics }) {
                 setSupplierCosts(costs);
                 setCostPerSqIn(DEFAULT_COST_PER_SQ_IN);
                 setQtyDiscounts(DEFAULT_QTY_DISCOUNTS.map((d) => ({ ...d })));
-                setPressTimeSec(DEFAULT_PRESS_TIME_SEC);
+                setPressCycleSec(DEFAULT_PRESS_CYCLE_SEC);
                 setMarkup(DEFAULT_DTF_MARKUP);
                 setSetupMinutes(DEFAULT_DTF_SETUP_MIN);
                 setShippingPerUnit(DEFAULT_SUPPLIER_SHIPPING);
                 setSetupArtFee(DEFAULT_SETUP_ART_FEE);
                 setWastePct(DEFAULT_WASTE_PCT);
+                setSmallOrderFee(DEFAULT_SMALL_ORDER_FEE);
               }}
               className="btn" style={{ fontSize: 12, padding: "5px 14px" }}
             >
@@ -449,7 +633,7 @@ export default function DTFCalculator({ shopEconomics }) {
           {/* Supplier Costs */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Supplier Costs Per Transfer
+              Supplier Costs Per Transfer (flat rate)
             </div>
             <div className="flex flex-wrap gap-3">
               {DTF_SIZE_PRESETS.map((p) => (
@@ -483,10 +667,13 @@ export default function DTFCalculator({ shopEconomics }) {
             </div>
           </div>
 
-          {/* Qty Discounts */}
+          {/* Supplier Volume Discounts */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Volume Discounts
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Supplier Volume Discounts
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+              Reduces your cost from the supplier at higher quantities
             </div>
             <div className="flex flex-wrap gap-3">
               {qtyDiscounts.map((d, i) => (
@@ -502,12 +689,13 @@ export default function DTFCalculator({ shopEconomics }) {
             </div>
           </div>
 
-          {/* Press Settings */}
+          {/* Press & Job Settings */}
           <div className="flex flex-wrap gap-5">
             <div>
-              <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>Press Time (sec)</label>
-              <input type="number" min={1} step={1} value={pressTimeSec} onChange={(e) => setPressTimeSec(Math.max(1, Number(e.target.value)))}
+              <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>Full Cycle (sec)</label>
+              <input type="number" min={1} step={5} value={pressCycleSec} onChange={(e) => setPressCycleSec(Math.max(1, Number(e.target.value)))}
                 className="field-editable" style={{ width: 70, padding: "5px 8px", textAlign: "center", fontSize: 13, fontWeight: 600 }} />
+              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>load+press+peel</div>
             </div>
             <div>
               <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>Setup (min)</label>
@@ -520,9 +708,18 @@ export default function DTFCalculator({ shopEconomics }) {
                 className="field-editable" style={{ width: 70, padding: "5px 8px", textAlign: "center", fontSize: 13, fontWeight: 600 }} />
             </div>
             <div>
-              <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>Waste %</label>
+              <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>Waste/Misprints %</label>
               <input type="number" min={0} max={20} step={1} value={wastePct} onChange={(e) => setWastePct(Math.max(0, Number(e.target.value)))}
                 className="field-editable" style={{ width: 70, padding: "5px 8px", textAlign: "center", fontSize: 13, fontWeight: 600 }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4, fontWeight: 500 }}>Small Order Fee</label>
+              <div style={{ position: "relative" }}>
+                <span style={{ position: "absolute", left: 6, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: "var(--text-muted)", pointerEvents: "none" }}>$</span>
+                <input type="number" min={0} step={5} value={smallOrderFee} onChange={(e) => setSmallOrderFee(Math.max(0, Number(e.target.value)))}
+                  className="field-editable" style={{ width: 70, padding: "5px 8px 5px 18px", textAlign: "center", fontSize: 13, fontWeight: 600 }} />
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>&lt;{SMALL_ORDER_THRESHOLD} units</div>
             </div>
           </div>
         </div>

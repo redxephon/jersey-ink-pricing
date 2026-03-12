@@ -90,6 +90,7 @@ export const EMB_FEES = {
   foldBagTshirt: { label: "T-shirt Fold/Bag/Sticker", amount: 0.60, type: "per-unit" },
   foldBagHoodie: { label: "Hoodie Fold/Bag/Sticker", amount: 0.90, type: "per-unit" },
   unbag: { label: "Unbagging", amount: 0.50, type: "per-unit" },
+  outerwear: { label: "Heavy Jackets/Outerwear", amount: 2.50, type: "per-unit" },
 };
 
 // Sizing standards (reference only)

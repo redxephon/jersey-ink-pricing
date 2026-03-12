@@ -101,12 +101,6 @@ export function calcEmbroideryTime(stitchCount, qty, threadColors = 1, numHeads 
   return { setupMinutes, totalMinutes, totalHours: totalMinutes / 60 };
 }
 
-export function calcDTFTime(qty, pressTimeSec = 15, setupMinutes = 5, numPlacements = 1) {
-  const pressMinutes = (pressTimeSec * qty * numPlacements) / 60;
-  const totalMinutes = setupMinutes + pressMinutes;
-  return { setupMinutes, pressMinutes, totalMinutes, totalHours: totalMinutes / 60 };
-}
-
 export function calcShopRates(shopEconomics) {
   if (!shopEconomics) return null;
   const { costItems, utilization, hoursPerDay, numPresses, daysPerWeek, targetMargin } = shopEconomics;

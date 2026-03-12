@@ -11,11 +11,13 @@ export const DTF_SIZE_PRESETS = [
 
 export const DEFAULT_COST_PER_SQ_IN = 0.03;
 export const DEFAULT_DTF_MARKUP = 150;
-export const DEFAULT_PRESS_TIME_SEC = 15;
+export const DEFAULT_PRESS_CYCLE_SEC = 40; // full cycle: load + pre-press + press + peel + unload
 export const DEFAULT_DTF_SETUP_MIN = 5;
-export const DEFAULT_SUPPLIER_SHIPPING = 0; // amortized per unit
-export const DEFAULT_SETUP_ART_FEE = 15; // one-time
-export const DEFAULT_WASTE_PCT = 3; // % waste factor
+export const DEFAULT_SUPPLIER_SHIPPING = 0.15; // amortized per unit
+export const DEFAULT_SETUP_ART_FEE = 25; // one-time
+export const DEFAULT_WASTE_PCT = 3; // press waste / misprints %
+export const DEFAULT_SMALL_ORDER_FEE = 10; // orders under threshold
+export const SMALL_ORDER_THRESHOLD = 6;
 
 export const DEFAULT_QTY_DISCOUNTS = [
   { minQty: 1, discountPct: 0 },
@@ -42,6 +44,24 @@ export const MARKUP_PRESETS = [
   { label: "Platform", pct: 250 },
 ];
 
+// Common blank garment presets
+export const GARMENT_PRESETS = [
+  { label: "None", cost: 0 },
+  { label: "Gildan 5000", cost: 2.50 },
+  { label: "Gildan 64000", cost: 3.25 },
+  { label: "Bella+Canvas 3001", cost: 4.50 },
+  { label: "Next Level 6210", cost: 5.50 },
+  { label: "Comfort Colors 1717", cost: 5.75 },
+  { label: "Hoodie (avg)", cost: 12.00 },
+];
+
+// Gang sheet sizes — common supplier options
+export const GANG_SHEET_SIZES = [
+  { label: '22"×60"', w: 22, h: 60, cost: 20 },
+  { label: '22"×120"', w: 22, h: 120, cost: 40 },
+  { label: '22"×180"', w: 22, h: 180, cost: 55 },
+];
+
 /**
  * Get applicable qty discount percentage.
  */
@@ -54,22 +74,51 @@ export function getQtyDiscount(qty, discounts) {
 }
 
 /**
+ * Calculate how many transfers fit on a gang sheet.
+ * Uses simple grid packing (no rotation optimization).
+ */
+export function calcGangSheetFit(sheetW, sheetH, transferW, transferH) {
+  // Try both orientations
+  const fit1 = Math.floor(sheetW / transferW) * Math.floor(sheetH / transferH);
+  const fit2 = Math.floor(sheetW / transferH) * Math.floor(sheetH / transferW);
+  return Math.max(fit1, fit2);
+}
+
+/**
+ * Calculate effective per-transfer cost from gang sheet.
+ */
+export function calcGangSheetCost(sheetCost, sheetW, sheetH, transferW, transferH) {
+  const fits = calcGangSheetFit(sheetW, sheetH, transferW, transferH);
+  if (fits <= 0) return { fits: 0, costPerTransfer: Infinity, wastePercent: 100 };
+  const usedArea = fits * transferW * transferH;
+  const totalArea = sheetW * sheetH;
+  const wastePercent = ((totalArea - usedArea) / totalArea) * 100;
+  return { fits, costPerTransfer: sheetCost / fits, wastePercent };
+}
+
+/**
  * Calculate DTF pricing for a job.
+ * customerDiscountPct is applied to sell price (customer volume discount).
+ * Supplier volume discount reduces cost via qtyDiscounts.
  */
 export function calcDTFPrice(transferCost, qty, markupPct, garmentCost, garmentMarkup, qtyDiscounts, opts = {}) {
-  const { shippingPerUnit = 0, rushPct = 0, setupArtFee = 0, wastePct = 0, numPlacements = 1 } = opts;
+  const {
+    shippingPerUnit = 0, rushPct = 0, setupArtFee = 0, wastePct = 0,
+    numPlacements = 1, smallOrderFee = 0, customerDiscountPct = 0,
+  } = opts;
   const discountPct = getQtyDiscount(qty, qtyDiscounts);
   const discountedCost = transferCost * (1 - discountPct / 100);
   const costWithWaste = discountedCost * (1 + wastePct / 100);
   const totalTransferCost = costWithWaste * numPlacements + shippingPerUnit;
   const rushMultiplier = 1 + rushPct / 100;
-  const sellPerTransfer = totalTransferCost * (1 + markupPct / 100) * rushMultiplier;
+  const baseSellPerTransfer = totalTransferCost * (1 + markupPct / 100) * rushMultiplier;
+  const sellPerTransfer = baseSellPerTransfer * (1 - customerDiscountPct / 100);
   const garmentSell = garmentCost * (1 + garmentMarkup / 100);
   const sellPerUnit = sellPerTransfer + garmentSell;
   const costPerUnit = totalTransferCost + garmentCost;
   const profitPerUnit = sellPerUnit - costPerUnit;
   const marginPct = sellPerUnit > 0 ? (profitPerUnit / sellPerUnit) * 100 : 0;
-  const orderTotal = sellPerUnit * qty + setupArtFee;
+  const orderTotal = sellPerUnit * qty + setupArtFee + smallOrderFee;
 
   return {
     discountPct,
@@ -83,31 +132,34 @@ export function calcDTFPrice(transferCost, qty, markupPct, garmentCost, garmentM
     marginPct,
     orderTotal,
     setupArtFee,
+    smallOrderFee,
+    customerDiscountPct,
   };
 }
 
 /**
  * Calculate DTF production time.
+ * pressCycleSec = full cycle per unit (load + pre-press + press + peel + unload)
  */
-export function calcDTFTime(qty, pressTimeSec, setupMinutes, numPlacements = 1) {
-  const pressMinutes = (pressTimeSec * qty * numPlacements) / 60;
+export function calcDTFTime(qty, pressCycleSec, setupMinutes, numPlacements = 1) {
+  const pressMinutes = (pressCycleSec * qty * numPlacements) / 60;
   const totalMinutes = setupMinutes + pressMinutes;
   return { setupMinutes, pressMinutes, totalMinutes, totalHours: totalMinutes / 60 };
 }
 
 /**
  * Build a rate card: rows = preset sizes, columns = qty tiers.
- * Returns sell price per unit for each combination.
+ * Returns sell price per unit for each combination (includes garment if provided).
  */
 export function buildDTFRateCard(supplierCosts, markupPct, qtyDiscounts, opts = {}) {
-  const { wastePct = 0, numPlacements = 1 } = opts;
+  const { wastePct = 0, numPlacements = 1, garmentSell = 0 } = opts;
   return DTF_SIZE_PRESETS.map((preset) => {
     const cost = supplierCosts[preset.key] ?? preset.cost;
     return DTF_QTY_TIERS.map((tier) => {
       const discountPct = getQtyDiscount(tier.rep, qtyDiscounts);
       const discountedCost = cost * (1 - discountPct / 100);
       const costWithWaste = discountedCost * (1 + wastePct / 100);
-      return costWithWaste * numPlacements * (1 + markupPct / 100);
+      return costWithWaste * numPlacements * (1 + markupPct / 100) + garmentSell;
     });
   });
 }

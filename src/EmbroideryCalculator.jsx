@@ -25,6 +25,7 @@ export default function EmbroideryCalculator({ shopEconomics }) {
   const [includeMetallic, setIncludeMetallic] = useState(false);
   const [includeFoldBag, setIncludeFoldBag] = useState(false);
   const [includeUnbag, setIncludeUnbag] = useState(false);
+  const [includeOuterwear, setIncludeOuterwear] = useState(false);
   const [foldBagType, setFoldBagType] = useState("tshirt");
   // New features
   const [threadColors, setThreadColors] = useState(1);
@@ -47,8 +48,9 @@ export default function EmbroideryCalculator({ shopEconomics }) {
     if (includeMetallic) fees += EMB_FEES.metallic.amount;
     if (includeFoldBag) fees += foldBagType === "hoodie" ? EMB_FEES.foldBagHoodie.amount : EMB_FEES.foldBagTshirt.amount;
     if (includeUnbag) fees += EMB_FEES.unbag.amount;
+    if (includeOuterwear) fees += EMB_FEES.outerwear.amount;
     return fees;
-  }, [includeCaps, includeFleece, include3DPuff, includeCustomName, includeMetallic, includeFoldBag, includeUnbag, foldBagType]);
+  }, [includeCaps, includeFleece, include3DPuff, includeCustomName, includeMetallic, includeFoldBag, includeUnbag, includeOuterwear, foldBagType]);
 
   const garmentSell = garmentCost * (1 + garmentMarkup / 100);
   const effectiveDigitizing = isRepeatOrder ? 0 : digitizingFee;
@@ -222,6 +224,7 @@ export default function EmbroideryCalculator({ shopEconomics }) {
             { label: `Custom Name (+${fmt(EMB_FEES.customName.amount)})`, checked: includeCustomName, set: setIncludeCustomName },
             { label: `Metallic (+${fmt(EMB_FEES.metallic.amount)})`, checked: includeMetallic, set: setIncludeMetallic },
             { label: `Unbag (+${fmt(EMB_FEES.unbag.amount)})`, checked: includeUnbag, set: setIncludeUnbag },
+            { label: `Outerwear (+${fmt(EMB_FEES.outerwear.amount)})`, checked: includeOuterwear, set: setIncludeOuterwear },
           ].map(({ label, checked, set }) => (
             <label key={label} className="flex items-center gap-1.5 cursor-pointer select-none">
               <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)} className="rf-check" />
