@@ -1,4 +1,8 @@
 import { useState, useMemo } from "react";
+import { calcPressTime, calcComplexityCostAdder, calcJobScore, findMinProfitableQty } from "./jobAnalysis";
+import ProfitAlerts from "./ProfitAlerts";
+import ProfitabilityAnalysis from "./ProfitabilityAnalysis";
+import CapacityPlanner from "./CapacityPlanner";
 
 const DEFAULT_PARAMS = [
   { screens: 1, setup: 44.17, variable: 0.8421, minQty: 12 },
@@ -71,6 +75,24 @@ export default function ScreenPrintCalculator() {
   const [includeSleeve, setIncludeSleeve] = useState(false);
   const [includeUnbag, setIncludeUnbag] = useState(false);
   const [pantoneColors, setPantoneColors] = useState(0);
+  const [garmentCost, setGarmentCost] = useState(0);
+  const [garmentMarkup, setGarmentMarkup] = useState(0);
+  // Complexity
+  const [showComplexity, setShowComplexity] = useState(false);
+  const [hasUnderbase, setHasUnderbase] = useState(false);
+  const [hasFlashCure, setHasFlashCure] = useState(false);
+  const [hasSpecialtyInk, setHasSpecialtyInk] = useState(false);
+  const [hasHalftones, setHasHalftones] = useState(false);
+  const [hasOversized, setHasOversized] = useState(false);
+  // Profitability
+  const [targetHourlyRate, setTargetHourlyRate] = useState(75);
+  const [targetProfit, setTargetProfit] = useState(500);
+  // Capacity
+  const [pressHoursPerWeek, setPressHoursPerWeek] = useState(40);
+  const [hoursBooked, setHoursBooked] = useState(0);
+  const [revenueBooked, setRevenueBooked] = useState(0);
+  const [laborRate, setLaborRate] = useState(15);
+  const [operators, setOperators] = useState(1);
 
   const LOCATION_LABELS = ["Front", "Back", "Sleeve", "Other"];
 
@@ -97,6 +119,25 @@ export default function ScreenPrintCalculator() {
     });
   };
 
+  // Find which qty tier column the current quickQty falls into
+  const activeQtyCol = useMemo(() => {
+    for (let i = QTY_TIERS.length - 1; i >= 0; i--) {
+      if (quickQty >= QTY_TIERS[i].min) return i;
+    }
+    return -1;
+  }, [quickQty]);
+
+  // Find which screen rows match the current locations
+  const activeScreenRows = useMemo(() => {
+    return [...new Set(locations.map((l) => l.screens - 1))];
+  }, [locations]);
+
+  const handleCellClick = (screenIdx, qtyIdx) => {
+    const tier = QTY_TIERS[qtyIdx];
+    setQuickQty(tier.rep);
+    setLocations([{ id: 1, screens: screenIdx + 1, label: "Front" }]);
+  };
+
   const rateCard = useMemo(() => {
     return params.map((p) => {
       return QTY_TIERS.map((tier) => {
@@ -109,13 +150,16 @@ export default function ScreenPrintCalculator() {
   const quickBreakdown = useMemo(() => {
     if (quickQty < 1) return null;
     let totalPrintPerUnit = 0;
+    let totalPrintCostPerUnit = 0;
     let totalScreenFees = 0;
     const locationDetails = [];
     for (const loc of locations) {
       const p = params[loc.screens - 1];
       if (!p) return null;
       const price = calcPrice(p.setup, p.variable, quickQty, increase);
+      const cost = p.setup / quickQty + p.variable;
       totalPrintPerUnit += price;
+      totalPrintCostPerUnit += cost;
       totalScreenFees += 27.0 * loc.screens;
       locationDetails.push({ label: loc.label, screens: loc.screens, price });
     }
@@ -127,21 +171,65 @@ export default function ScreenPrintCalculator() {
       (includeUnbag ? 0.15 : 0);
     const pantoneFees = pantoneColors * 15.0;
     const allInPerUnit = totalPrintPerUnit + perUnitAddOns;
-    const printSubtotal = allInPerUnit * quickQty;
+    const garmentSell = garmentCost * (1 + garmentMarkup / 100);
+    const allInWithGarment = allInPerUnit + garmentSell;
+    const printSubtotal = allInWithGarment * quickQty;
     const orderTotal = printSubtotal + totalScreenFees + pantoneFees;
     const totalScreens = locations.reduce((sum, l) => sum + l.screens, 0);
+    const costPerUnit = totalPrintCostPerUnit + perUnitAddOns + garmentCost;
+    const sellPerUnit = allInWithGarment;
+    const profitPerUnit = sellPerUnit - costPerUnit;
+    const marginPct = sellPerUnit > 0 ? (profitPerUnit / sellPerUnit) * 100 : 0;
     return {
       totalPrintPerUnit,
       totalScreenFees,
       pantoneFees,
       perUnitAddOns,
       allInPerUnit,
+      garmentSell,
+      allInWithGarment,
       printSubtotal,
       orderTotal,
       totalScreens,
       locationDetails,
+      costPerUnit,
+      sellPerUnit,
+      profitPerUnit,
+      marginPct,
     };
-  }, [locations, params, quickQty, increase, includeFoldBag, includeFleece, includeSticker, includeSleeve, includeUnbag, pantoneColors]);
+  }, [locations, params, quickQty, increase, includeFoldBag, includeFleece, includeSticker, includeSleeve, includeUnbag, pantoneColors, garmentCost, garmentMarkup]);
+
+  const complexity = useMemo(() => ({
+    underbase: hasUnderbase, flashCure: hasFlashCure, specialtyInk: hasSpecialtyInk,
+    halftones: hasHalftones, oversized: hasOversized,
+  }), [hasUnderbase, hasFlashCure, hasSpecialtyInk, hasHalftones, hasOversized]);
+
+  const complexityCostAdder = useMemo(() => calcComplexityCostAdder(complexity), [complexity]);
+
+  const totalScreens = useMemo(() => locations.reduce((s, l) => s + l.screens, 0), [locations]);
+
+  const pressTime = useMemo(() => {
+    return calcPressTime(totalScreens, quickQty, complexity);
+  }, [totalScreens, quickQty, complexity]);
+
+  const perUnitAddOns = useMemo(() => (
+    (includeFoldBag ? 0.45 : 0) + (includeFleece ? 0.50 : 0) + (includeSticker ? 0.25 : 0) +
+    (includeSleeve ? 0.25 * locations.length : 0) + (includeUnbag ? 0.15 : 0)
+  ), [includeFoldBag, includeFleece, includeSticker, includeSleeve, includeUnbag, locations.length]);
+
+  const jobProfitability = useMemo(() => {
+    if (!quickBreakdown) return null;
+    const totalProfit = quickBreakdown.profitPerUnit * quickQty;
+    const dollarsPerHour = pressTime.totalHours > 0 ? totalProfit / pressTime.totalHours : 0;
+    const { score, dominantFactor } = calcJobScore(
+      quickBreakdown.marginPct, dollarsPerHour, totalProfit, pressTime.complexityMult, targetHourlyRate
+    );
+    return { totalProfit, dollarsPerHour, score, dominantFactor };
+  }, [quickBreakdown, quickQty, pressTime, targetHourlyRate]);
+
+  const minProfitableQty = useMemo(() => {
+    return findMinProfitableQty(params, locations, increase, perUnitAddOns, complexityCostAdder, complexity, targetHourlyRate);
+  }, [params, locations, increase, perUnitAddOns, complexityCostAdder, complexity, targetHourlyRate]);
 
   return (
     <>
@@ -152,7 +240,7 @@ export default function ScreenPrintCalculator() {
           <input
             type="range"
             min={-20}
-            max={50}
+            max={100}
             step={1}
             value={increase}
             onChange={(e) => setIncrease(Number(e.target.value))}
@@ -274,14 +362,103 @@ export default function ScreenPrintCalculator() {
             <span style={{ color: "var(--text-muted)" }}>× $15</span>
           </label>
         </div>
+        {/* Garment Cost */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2" style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          <label className="flex items-center gap-1.5 select-none">
+            <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>Garment Cost</span>
+            <span style={{ color: "var(--text-muted)" }}>$</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={garmentCost || ""}
+              placeholder="0.00"
+              onChange={(e) => setGarmentCost(Math.max(0, Number(e.target.value)))}
+              className="field-editable"
+              style={{ width: 80, padding: "3px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }}
+            />
+          </label>
+          <label className="flex items-center gap-1.5 select-none">
+            <span>Markup</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={garmentMarkup || ""}
+              placeholder="0"
+              onChange={(e) => setGarmentMarkup(Math.max(0, Number(e.target.value)))}
+              className="field-editable"
+              style={{ width: 56, padding: "3px 6px", textAlign: "center", fontSize: 12, fontWeight: 600 }}
+            />
+            <span style={{ color: "var(--text-muted)" }}>%</span>
+          </label>
+          {garmentCost > 0 && (
+            <span className="tnum" style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
+              = {formatPrice(garmentCost * (1 + garmentMarkup / 100))}/ea
+            </span>
+          )}
+        </div>
+
+        {/* Complexity Toggles */}
+        <div className="mt-2">
+          <button
+            onClick={() => setShowComplexity((v) => !v)}
+            style={{
+              fontSize: 11, fontWeight: 600, color: "var(--text-muted)", background: "none",
+              border: "none", cursor: "pointer", padding: "4px 0", letterSpacing: "0.05em",
+              textTransform: "uppercase",
+            }}
+          >
+            {showComplexity ? "- Complexity" : "+ Complexity"}
+          </button>
+          {showComplexity && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-1" style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              {[
+                { label: "Underbase (+$0.35)", checked: hasUnderbase, set: setHasUnderbase },
+                { label: "Flash Cure (+$0.20)", checked: hasFlashCure, set: setHasFlashCure },
+                { label: "Specialty Ink (+$0.40)", checked: hasSpecialtyInk, set: setHasSpecialtyInk },
+                { label: "Halftones", checked: hasHalftones, set: setHasHalftones },
+                { label: "Oversized (+$0.25)", checked: hasOversized, set: setHasOversized },
+              ].map(({ label, checked, set }) => (
+                <label key={label} className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)} className="rf-check" />
+                  {label}
+                </label>
+              ))}
+              <span style={{ color: "var(--border-medium)" }}>|</span>
+              <span className="tnum" style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
+                Press: ~{pressTime.totalHours.toFixed(1)}hrs
+                {pressTime.complexityMult > 1 && <> | {pressTime.complexityMult.toFixed(2)}x</>}
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* Results */}
         {quickBreakdown !== null && (
-          <div className="flex gap-6 items-end mt-4 flex-wrap">
+          <div className="results-grid mt-4">
+            {/* Job Score */}
+            {jobProfitability && (
+              <div className="panel-inset p-3" style={{ textAlign: "center" }}>
+                <div className="kpi-label mb-2">Job Score</div>
+                <div style={{
+                  width: 36, height: 36, borderRadius: "50%", margin: "0 auto 6px",
+                  background: jobProfitability.score >= 70 ? "var(--ji-green)" : jobProfitability.score >= 40 ? "var(--fund-amber)" : "var(--warn-red)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 14, fontWeight: 700, color: "var(--bg-deep)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}>
+                  {jobProfitability.score}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  {jobProfitability.dominantFactor}
+                </div>
+              </div>
+            )}
             <div className="panel-inset p-3 text-right">
-              <div className="kpi-label mb-1">Per Unit (all locations)</div>
+              <div className="kpi-label mb-1">Per Unit (all-in)</div>
               <div className="kpi-value" style={{ color: "var(--ji-green)" }}>
-                {formatPrice(quickBreakdown.allInPerUnit)}
+                {formatPrice(quickBreakdown.allInWithGarment)}
               </div>
               <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                 {quickBreakdown.locationDetails.map((d, i) => (
@@ -289,6 +466,9 @@ export default function ScreenPrintCalculator() {
                 ))}
                 {quickBreakdown.perUnitAddOns > 0 && (
                   <span> + {formatPrice(quickBreakdown.perUnitAddOns)} fees</span>
+                )}
+                {quickBreakdown.garmentSell > 0 && (
+                  <span> + {formatPrice(quickBreakdown.garmentSell)} garment</span>
                 )}
               </div>
             </div>
@@ -312,6 +492,21 @@ export default function ScreenPrintCalculator() {
               </div>
             </div>
             <div className="text-right">
+              <div className="kpi-label">Margin</div>
+              <div className="tnum" style={{
+                fontSize: 22, fontWeight: 700,
+                color: quickBreakdown.marginPct >= 30 ? "var(--ji-green)" : quickBreakdown.marginPct >= 15 ? "var(--fund-amber)" : "var(--warn-red)",
+              }}>
+                {quickBreakdown.marginPct.toFixed(1)}%
+              </div>
+              <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                {formatPrice(quickBreakdown.profitPerUnit)}/unit profit
+              </div>
+              <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                cost {formatPrice(quickBreakdown.costPerUnit)} → sell {formatPrice(quickBreakdown.sellPerUnit)}
+              </div>
+            </div>
+            <div className="text-right">
               <div className="kpi-label">Per-Location Breakdown</div>
               <div className="tnum" style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
                 {quickBreakdown.locationDetails.map((d, i) => (
@@ -323,6 +518,18 @@ export default function ScreenPrintCalculator() {
             </div>
           </div>
         )}
+
+        {/* Profit Alerts */}
+        {quickBreakdown !== null && jobProfitability && (
+          <ProfitAlerts
+            dollarsPerHour={jobProfitability.dollarsPerHour}
+            targetHourlyRate={targetHourlyRate}
+            setTargetHourlyRate={setTargetHourlyRate}
+            minProfitableQty={minProfitableQty}
+            currentQty={quickQty}
+            currentHourlyEarning={jobProfitability.dollarsPerHour}
+          />
+        )}
       </div>
 
       {/* Tab Switcher */}
@@ -330,6 +537,8 @@ export default function ScreenPrintCalculator() {
         {[
           { id: "card", label: "Rate Card" },
           { id: "params", label: "Parameters" },
+          { id: "profit", label: "Profitability" },
+          { id: "capacity", label: "Capacity" },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -362,13 +571,19 @@ export default function ScreenPrintCalculator() {
               <thead>
                 <tr>
                   <th style={{ textAlign: "left", paddingLeft: 12, width: 70 }}>Screens</th>
-                  {QTY_TIERS.map((tier) => (
-                    <th key={tier.label} style={{ textAlign: "center" }}>{tier.label}</th>
+                  {QTY_TIERS.map((tier, qi) => (
+                    <th key={tier.label} style={{
+                      textAlign: "center",
+                      color: qi === activeQtyCol ? "var(--ji-green)" : undefined,
+                      background: qi === activeQtyCol ? "rgba(52, 211, 153, 0.08)" : undefined,
+                    }}>{tier.label}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {rateCard.map((row, si) => (
+                {rateCard.map((row, si) => {
+                  const isActiveRow = activeScreenRows.includes(si);
+                  return (
                   <tr key={si} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                     <td style={{ paddingLeft: 12, fontWeight: 700, color: SCREEN_COLORS[si].color, textAlign: "center", fontSize: 15 }}>
                       {si + 1}
@@ -376,14 +591,31 @@ export default function ScreenPrintCalculator() {
                     {row.map((price, qi) => {
                       const old2023 = CURRENT_2023[si + 1][qi];
                       const pctChange = price !== null && old2023 !== null ? ((price - old2023) / old2023) * 100 : null;
+                      const isHighlighted = isActiveRow && qi === activeQtyCol;
+                      const isColHighlight = qi === activeQtyCol;
+                      const isRowHighlight = isActiveRow;
 
                       return (
-                        <td key={qi} style={{ textAlign: "center", padding: "8px 6px" }}>
+                        <td
+                          key={qi}
+                          onClick={() => price !== null && handleCellClick(si, qi)}
+                          style={{
+                            textAlign: "center", padding: "8px 6px",
+                            cursor: price !== null ? "pointer" : "default",
+                            background: isHighlighted ? "rgba(52, 211, 153, 0.12)"
+                              : isColHighlight ? "rgba(52, 211, 153, 0.04)"
+                              : isRowHighlight ? "rgba(52, 211, 153, 0.04)"
+                              : undefined,
+                            boxShadow: isHighlighted ? "inset 0 0 0 1px rgba(52, 211, 153, 0.3)" : undefined,
+                            borderRadius: isHighlighted ? "var(--radius-sm)" : undefined,
+                            transition: "background 0.15s ease",
+                          }}
+                        >
                           {price === null ? (
                             <span style={{ color: "var(--warn-red)", fontSize: 10, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>CALL</span>
                           ) : (
                             <div>
-                              <div className="tnum" style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: 13 }}>
+                              <div className="tnum" style={{ fontWeight: 600, color: isHighlighted ? "var(--ji-green)" : "var(--text-primary)", fontSize: 13 }}>
                                 {formatPrice(price)}
                               </div>
                               {showComparison && pctChange !== null && (
@@ -401,11 +633,36 @@ export default function ScreenPrintCalculator() {
                       );
                     })}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+
+      {/* Profitability Tab */}
+      {activeTab === "profit" && (
+        <ProfitabilityAnalysis
+          params={params} locations={locations} increase={increase}
+          perUnitAddOns={perUnitAddOns} complexityCostAdder={complexityCostAdder}
+          complexity={complexity} garmentCost={garmentCost} garmentMarkup={garmentMarkup}
+          pantoneColors={pantoneColors} qtyTiers={QTY_TIERS}
+          targetProfit={targetProfit} setTargetProfit={setTargetProfit}
+          targetHourlyRate={targetHourlyRate}
+        />
+      )}
+
+      {/* Capacity Tab */}
+      {activeTab === "capacity" && (
+        <CapacityPlanner
+          pressHoursPerWeek={pressHoursPerWeek} setPressHoursPerWeek={setPressHoursPerWeek}
+          hoursBooked={hoursBooked} setHoursBooked={setHoursBooked}
+          revenueBooked={revenueBooked} setRevenueBooked={setRevenueBooked}
+          targetHourlyRate={targetHourlyRate} setTargetHourlyRate={setTargetHourlyRate}
+          laborRate={laborRate} setLaborRate={setLaborRate}
+          operators={operators} setOperators={setOperators}
+        />
       )}
 
       {/* Parameters Panel */}
@@ -458,30 +715,6 @@ export default function ScreenPrintCalculator() {
         </div>
       )}
 
-      {/* Additional Fees */}
-      <div className="panel p-4">
-        <h2 className="section-label mb-3">Additional Fees & Notes</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1" style={{ fontSize: 13 }}>
-          {[
-            ["Screen Fee", "$27.00 /screen"],
-            ["Screen Set-up (Reorder <1yr)", "$7.00 /screen"],
-            ["Fold and Bag", "$0.45 each"],
-            ["Sticker", "+$0.25 each"],
-            ["Pantone Color Match", "+$15.00 each"],
-            ["Fleece Printing", "+$0.50 each"],
-            ["Sleeve/Pocket/Pant Leg", "+$0.25 /location"],
-            ["Unbagging/Detagging", "$0.15 each"],
-            ["Spoilage Allowance", "3%"],
-            ["Minimum Order", "12 pieces"],
-            ["Turnaround", "2-3 weeks"],
-          ].map(([label, value]) => (
-            <div key={label} className="flex justify-between py-1.5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-              <span style={{ color: "var(--text-muted)" }}>{label}</span>
-              <span className="tnum" style={{ fontWeight: 600, color: "var(--text-secondary)" }}>{value}</span>
-            </div>
-          ))}
-        </div>
-      </div>
     </>
   );
 }

@@ -395,3 +395,25 @@ select.rf-select:focus {
   border-radius: var(--radius-md);
   color: var(--client-blue);
 }
+
+/* ── Results grid (responsive) ── */
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+@media (min-width: 900px) {
+  .results-grid {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+}
+
+/* ── Rate card clickable cells ── */
+.rf-table tbody td:hover {
+  filter: brightness(1.15);
+}
