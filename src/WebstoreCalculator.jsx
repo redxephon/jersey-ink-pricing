@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { DECO_TYPES, estimateDecoCogs, getDecoParamOptions, getDefaultDecoParam, decoCogsTooltip } from "./decoCostEstimator";
+import { DECO_TYPES, estimateDecoCogs, getDecoParamOptions, getDefaultDecoParam, decoCogsTooltip, locationToDtfPreset, decoSummaryLabel, DECO_TYPE_COLORS } from "./decoCostEstimator";
 
 const DEFAULT_SETTINGS = {
   jiFeePct: 15,
@@ -177,11 +177,23 @@ export default function WebstoreCalculator() {
   }, []);
 
   const updateDecoType = useCallback((id, newType) => {
-    setItems((prev) => prev.map((item) => item.id === id ? { ...item, decoType: newType, decoParam: getDefaultDecoParam(newType) } : item));
+    setItems((prev) => prev.map((item) => {
+      if (item.id !== id) return item;
+      return { ...item, decoType: newType, decoParam: getDefaultDecoParam(newType, item.location) };
+    }));
   }, []);
 
   const updateDecoParam = useCallback((id, newParam) => {
     setItems((prev) => prev.map((item) => item.id === id ? { ...item, decoParam: newParam } : item));
+  }, []);
+
+  const updateLocation = useCallback((id, newLocation) => {
+    setItems((prev) => prev.map((item) => {
+      if (item.id !== id) return item;
+      const updated = { ...item, location: newLocation };
+      if (item.decoType === "dtf") updated.decoParam = locationToDtfPreset(newLocation);
+      return updated;
+    }));
   }, []);
 
   // Bulk deco setter state
@@ -189,8 +201,15 @@ export default function WebstoreCalculator() {
   const [bulkDecoParam, setBulkDecoParam] = useState(2);
 
   const applyBulkDeco = useCallback(() => {
-    setItems((prev) => prev.map((item) => ({ ...item, decoType: bulkDecoType, decoParam: bulkDecoParam })));
+    setItems((prev) => prev.map((item) => ({
+      ...item,
+      decoType: bulkDecoType,
+      decoParam: bulkDecoType === "dtf" ? locationToDtfPreset(item.location) : bulkDecoParam,
+    })));
   }, [bulkDecoType, bulkDecoParam]);
+
+  // Popover state — which item's deco dropdown is open
+  const [openDecoId, setOpenDecoId] = useState(null);
 
   const calculated = useMemo(() => {
     const totalQty = items.reduce((s, i) => s + i.qty, 0);
@@ -377,19 +396,21 @@ export default function WebstoreCalculator() {
                 <option key={dt.key} value={dt.key}>{dt.label}</option>
               ))}
             </select>
-            <select
-              value={bulkDecoParam ?? ""}
-              onChange={(e) => {
-                const v = e.target.value;
-                setBulkDecoParam(bulkDecoType === "emb" || bulkDecoType === "sp" ? Number(v) : v);
-              }}
-              className="rf-select"
-              style={{ padding: "1px 2px", fontSize: 11 }}
-            >
-              {getDecoParamOptions(bulkDecoType).map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            {bulkDecoType !== "dtf" && (
+              <select
+                value={bulkDecoParam ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setBulkDecoParam(bulkDecoType === "emb" || bulkDecoType === "sp" ? Number(v) : v);
+                }}
+                className="rf-select"
+                style={{ padding: "1px 2px", fontSize: 11 }}
+              >
+                {getDecoParamOptions(bulkDecoType).map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            )}
             <button onClick={applyBulkDeco} className="btn-primary" style={{ padding: "2px 8px", fontSize: 11 }}>Apply</button>
           </div>
         )}
@@ -589,12 +610,11 @@ export default function WebstoreCalculator() {
               <tr>
                 {!isClient && <th style={{ width: 28 }}></th>}
                 <th style={{ textAlign: "left", paddingLeft: 10 }}>Product</th>
-                <th style={{ textAlign: "left", width: 100 }}>Location</th>
+                <th style={{ textAlign: "left", width: isClient ? 100 : 220 }}>
+                  {isClient ? "Location" : "Decoration"}
+                </th>
                 {!isClient && (
                   <>
-                    <th style={{ textAlign: "center", width: 190 }}>
-                      <div>Deco COGS</div>
-                    </th>
                     {showBreakdown && (
                       <th style={{ textAlign: "right", width: 64 }}>
                         <div>Deco</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>Price</div>
@@ -663,51 +683,37 @@ export default function WebstoreCalculator() {
                         />
                       )}
                     </td>
-                    <td style={{ padding: "4px 6px" }}>
+                    <td style={{ padding: "4px 4px", position: "relative" }}>
                       {isClient ? (
                         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.location}</span>
                       ) : (
-                        <select
-                          value={item.location}
-                          onChange={(e) => updateItem(item.id, "location", e.target.value)}
-                          className="rf-select"
-                          style={{ width: "100%", padding: "3px 4px" }}
-                        >
-                          {LOCATIONS.map((loc) => (
-                            <option key={loc} value={loc}>{loc}</option>
-                          ))}
-                        </select>
-                      )}
-                    </td>
-                    {!isClient && (
-                      <>
-                        <td style={{ padding: "4px 4px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                            <select
-                              value={item.decoType || "custom"}
-                              onChange={(e) => updateDecoType(item.id, e.target.value)}
-                              className="rf-select"
-                              style={{ padding: "2px 2px", fontSize: 11, width: 46, flexShrink: 0 }}
+                        <>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            {/* Chip button */}
+                            <button
+                              onClick={() => setOpenDecoId(openDecoId === item.id ? null : item.id)}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 4,
+                                padding: "3px 6px", fontSize: 11, flex: 1, minWidth: 0,
+                                background: "var(--bg-deep)", border: "1px solid var(--border-subtle)",
+                                borderRadius: "var(--radius-sm)", cursor: "pointer",
+                                transition: "border-color 0.15s",
+                                borderColor: openDecoId === item.id ? "var(--border-medium)" : "var(--border-subtle)",
+                              }}
                             >
-                              {DECO_TYPES.map((dt) => (
-                                <option key={dt.key} value={dt.key}>{dt.label}</option>
-                              ))}
-                            </select>
-                            {item.decoType && item.decoType !== "custom" && (
-                              <select
-                                value={item.decoParam ?? ""}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  updateDecoParam(item.id, item.decoType === "emb" ? Number(v) : item.decoType === "sp" ? Number(v) : v);
-                                }}
-                                className="rf-select"
-                                style={{ padding: "2px 2px", fontSize: 11, width: 68, flexShrink: 0 }}
-                              >
-                                {getDecoParamOptions(item.decoType || "custom").map((opt) => (
-                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                ))}
-                              </select>
-                            )}
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, padding: "1px 4px",
+                                borderRadius: 2, color: "white", flexShrink: 0, letterSpacing: "0.03em",
+                                background: DECO_TYPE_COLORS[item.decoType] || DECO_TYPE_COLORS.custom,
+                              }}>
+                                {(DECO_TYPES.find((d) => d.key === item.decoType) || DECO_TYPES[0]).label}
+                              </span>
+                              <span style={{ fontSize: 11, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {decoSummaryLabel(item.decoType, item.decoParam, item.location)}
+                              </span>
+                              <span style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: "auto", flexShrink: 0 }}>{"\u25BC"}</span>
+                            </button>
+                            {/* COGS value */}
                             {(item.decoType === "custom" || !item.decoType) ? (
                               <input
                                 type="number"
@@ -716,13 +722,13 @@ export default function WebstoreCalculator() {
                                 step={0.01}
                                 min={0}
                                 className="field-editable-blue"
-                                style={{ width: 62, padding: "2px 4px", textAlign: "right", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
+                                style={{ width: 58, padding: "2px 4px", textAlign: "right", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
                               />
                             ) : (
                               <span
                                 className="tnum"
                                 title={cogsTooltip}
-                                style={{ width: 62, textAlign: "right", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", padding: "2px 4px", cursor: "help", flexShrink: 0, borderBottom: "1px dashed var(--border-medium)" }}
+                                style={{ width: 58, textAlign: "right", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", padding: "2px 4px", cursor: "help", flexShrink: 0, borderBottom: "1px dashed var(--border-medium)" }}
                                 onClick={() => {
                                   setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, decoType: "custom", decoParam: null, decoCogs: effectiveCogs } : it));
                                 }}
@@ -731,7 +737,79 @@ export default function WebstoreCalculator() {
                               </span>
                             )}
                           </div>
-                        </td>
+                          {/* Popover dropdown */}
+                          {openDecoId === item.id && (
+                            <div style={{
+                              position: "absolute", top: "100%", left: 4, zIndex: 30,
+                              background: "var(--bg-surface)", border: "1px solid var(--border-medium)",
+                              borderRadius: "var(--radius-sm)", padding: "8px 10px",
+                              boxShadow: "0 4px 16px rgba(0,0,0,0.2)", minWidth: 200,
+                            }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
+                                  <span style={{ color: "var(--text-muted)", fontWeight: 500, width: 52 }}>Type</span>
+                                  <select
+                                    value={item.decoType || "custom"}
+                                    onChange={(e) => { updateDecoType(item.id, e.target.value); }}
+                                    className="rf-select"
+                                    style={{ padding: "3px 4px", fontSize: 12, flex: 1 }}
+                                  >
+                                    {DECO_TYPES.map((dt) => (
+                                      <option key={dt.key} value={dt.key}>{dt.key === "custom" ? "Custom" : dt.label === "SP" ? "Screen Print" : dt.label === "EMB" ? "Embroidery" : "DTF Transfer"}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
+                                  <span style={{ color: "var(--text-muted)", fontWeight: 500, width: 52 }}>Location</span>
+                                  <select
+                                    value={item.location}
+                                    onChange={(e) => updateLocation(item.id, e.target.value)}
+                                    className="rf-select"
+                                    style={{ padding: "3px 4px", fontSize: 12, flex: 1 }}
+                                  >
+                                    {LOCATIONS.map((loc) => (
+                                      <option key={loc} value={loc}>{loc}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                {item.decoType && item.decoType !== "custom" && item.decoType !== "dtf" && (
+                                  <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
+                                    <span style={{ color: "var(--text-muted)", fontWeight: 500, width: 52 }}>{item.decoType === "sp" ? "Screens" : "Stitches"}</span>
+                                    <select
+                                      value={item.decoParam ?? ""}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        updateDecoParam(item.id, item.decoType === "sp" || item.decoType === "emb" ? Number(v) : v);
+                                      }}
+                                      className="rf-select"
+                                      style={{ padding: "3px 4px", fontSize: 12, flex: 1 }}
+                                    >
+                                      {getDecoParamOptions(item.decoType).map((opt) => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                )}
+                                {item.decoType === "dtf" && (
+                                  <div style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic", padding: "2px 0" }}>
+                                    Size auto-mapped from location ({(getDecoParamOptions("dtf").find((o) => o.value === item.decoParam) || {}).label || "Standard"})
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => setOpenDecoId(null)}
+                                className="btn-primary"
+                                style={{ marginTop: 8, width: "100%", padding: "4px 0", fontSize: 11 }}
+                              >
+                                Done
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </td>
+                    {!isClient && (
+                      <>
                         {showBreakdown && (
                           <td className="field-readonly tnum" style={{ padding: "4px 6px", textAlign: "right", fontSize: 12 }}>
                             {fmt(calc.decoPrice)}
@@ -827,7 +905,7 @@ export default function WebstoreCalculator() {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={isClient ? 3 : (showBreakdown ? 12 : 9)} style={{ textAlign: "right", fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Totals</td>
+                <td colSpan={isClient ? 3 : (showBreakdown ? 11 : 8)} style={{ textAlign: "right", fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Totals</td>
                 <td className="tnum" style={{ textAlign: "center", fontSize: 12, color: "var(--text-secondary)" }}>{totals.qty}</td>
                 <td className="tnum" style={{ textAlign: "right", fontSize: 12, color: "var(--text-secondary)" }}>{fmt(totals.revenue)}</td>
                 {!isClient && <td className="tnum" style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--ji-green)" }}>{fmt(totals.jiGross)}</td>}

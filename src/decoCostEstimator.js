@@ -95,12 +95,48 @@ export function getDecoParamOptions(decoType) {
 /**
  * Get default param value for a deco type.
  */
-export function getDefaultDecoParam(decoType) {
+export function getDefaultDecoParam(decoType, location) {
   if (decoType === "sp") return 2;
   if (decoType === "emb") return 5; // 7-8K tier
-  if (decoType === "dtf") return "standard";
+  if (decoType === "dtf") return locationToDtfPreset(location);
   return null;
 }
+
+// Location → DTF size preset mapping
+const LOCATION_DTF_MAP = {
+  "Front": "standard",
+  "Back": "standard",
+  "Front Left Chest": "left-chest",
+  "Front Hip": "pocket",
+  "Sleeve": "sleeve",
+  "Full Front": "full-front",
+  "Full Back": "oversize",
+};
+
+export function locationToDtfPreset(location) {
+  return LOCATION_DTF_MAP[location] || "standard";
+}
+
+/**
+ * Build a short summary label for the deco chip button.
+ */
+export function decoSummaryLabel(decoType, decoParam, location) {
+  const loc = location || "Front";
+  if (decoType === "sp") return `${loc} \u00b7 ${decoParam || 2} scr`;
+  if (decoType === "emb") {
+    const tier = EMB_STITCH_TIERS[decoParam ?? 5];
+    return `${loc} \u00b7 ${tier ? tier.label : "7-8K"}`;
+  }
+  if (decoType === "dtf") return loc;
+  return loc;
+}
+
+export const DECO_TYPE_COLORS = {
+  sp: "#ef4444",
+  emb: "#3b82f6",
+  dtf: "#a855f7",
+  custom: "#64748b",
+};
 
 /**
  * Build a human-readable tooltip explaining how the COGS was calculated.
