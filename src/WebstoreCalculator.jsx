@@ -215,6 +215,9 @@ export default function WebstoreCalculator() {
   const [openLocId, setOpenLocId] = useState(null);
   const locRef = useRef(null);
 
+  // Helper: any popover open (for overflow control)
+  const anyPopoverOpen = openDecoId || openLocId;
+
   // Click-outside to dismiss popovers
   useEffect(() => {
     if (!openDecoId && !openLocId) return;
@@ -618,13 +621,13 @@ export default function WebstoreCalculator() {
       )}
 
       {/* Product Table */}
-      <div className={`panel mb-4 ${openDecoId ? "" : "overflow-hidden"}`}>
+      <div className={`panel mb-4 ${anyPopoverOpen ? "" : "overflow-hidden"}`}>
         <div className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
           <h2 style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>
             {isClient ? "Products" : "Product Pricing Table"}
           </h2>
         </div>
-        <div className={openDecoId ? "" : "overflow-x-auto"}>
+        <div className={anyPopoverOpen ? "" : "overflow-x-auto"}>
           <table className="rf-table">
             <thead>
               <tr>
@@ -678,7 +681,7 @@ export default function WebstoreCalculator() {
               {calculated.map(({ item, calc, effectiveCogs, cogsTooltip }) => {
                 if (isClient && item.qty === 0) return null;
                 return (
-                  <tr key={item.id} className={rowHealthClass(calc.marginPct, item.qty)} style={{ borderBottom: "1px solid var(--border-subtle)", position: openDecoId === item.id ? "relative" : undefined, zIndex: openDecoId === item.id ? 20 : undefined }}>
+                  <tr key={item.id} className={rowHealthClass(calc.marginPct, item.qty)} style={{ borderBottom: "1px solid var(--border-subtle)", position: (openDecoId === item.id || openLocId === item.id) ? "relative" : undefined, zIndex: (openDecoId === item.id || openLocId === item.id) ? 20 : undefined }}>
                     {!isClient && (
                       <td style={{ textAlign: "center", padding: "4px 2px" }}>
                         <button
@@ -713,7 +716,7 @@ export default function WebstoreCalculator() {
                           <button
                             className="loc-btn"
                             data-open={openLocId === item.id}
-                            onClick={() => setOpenLocId(openLocId === item.id ? null : item.id)}
+                            onClick={() => { setOpenDecoId(null); setOpenLocId(openLocId === item.id ? null : item.id); }}
                           >
                             {item.location}
                             <span className="loc-btn__arrow">{"\u25BE"}</span>
@@ -743,7 +746,7 @@ export default function WebstoreCalculator() {
                         <button
                           className="deco-chip"
                           data-open={openDecoId === item.id}
-                          onClick={() => setOpenDecoId(openDecoId === item.id ? null : item.id)}
+                          onClick={() => { setOpenLocId(null); setOpenDecoId(openDecoId === item.id ? null : item.id); }}
                           style={{ borderLeftColor: DECO_TYPE_COLORS[item.decoType] || DECO_TYPE_COLORS.custom, borderLeftWidth: 3 }}
                         >
                           <span className="deco-chip__badge" style={{ background: DECO_TYPE_COLORS[item.decoType] || DECO_TYPE_COLORS.custom }}>
