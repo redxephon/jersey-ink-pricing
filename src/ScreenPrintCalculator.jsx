@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { calcPressTime, calcComplexityCostAdder, calcJobScore, findMinProfitableQty } from "./jobAnalysis";
+import { calcPressTime, calcComplexityCostAdder, calcJobScore, calcShopRates, findMinProfitableQty } from "./jobAnalysis";
 import ProfitAlerts from "./ProfitAlerts";
 import ProfitabilityAnalysis from "./ProfitabilityAnalysis";
 
@@ -219,6 +219,8 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
     );
     return { totalProfit, dollarsPerHour, score, dominantFactor };
   }, [quickBreakdown, quickQty, pressTime, targetHourlyRate]);
+
+  const shopRates = useMemo(() => calcShopRates(shopEconomics), [shopEconomics]);
 
   const minProfitableQty = useMemo(() => {
     return findMinProfitableQty(params, locations, increase, perUnitAddOns, complexityCostAdder, complexity, targetHourlyRate);
@@ -499,6 +501,28 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
                 cost {formatPrice(quickBreakdown.costPerUnit)} → sell {formatPrice(quickBreakdown.sellPerUnit)}
               </div>
             </div>
+            {jobProfitability && (
+              <div className="text-right">
+                <div className="kpi-label">$/hr</div>
+                <div className="tnum" style={{
+                  fontSize: 22, fontWeight: 700,
+                  color: jobProfitability.dollarsPerHour >= (shopRates?.minShopRate || targetHourlyRate)
+                    ? "var(--ji-green)"
+                    : jobProfitability.dollarsPerHour >= (shopRates?.minShopRate || targetHourlyRate) * 0.5
+                      ? "var(--fund-amber)" : "var(--warn-red)",
+                }}>
+                  {formatPrice(jobProfitability.dollarsPerHour)}
+                </div>
+                <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                  ~{pressTime.totalHours.toFixed(1)}hrs
+                </div>
+                {shopRates && jobProfitability.dollarsPerHour < shopRates.minShopRate && (
+                  <div style={{ fontSize: 10, color: "var(--warn-red)", marginTop: 2 }}>
+                    Below min {formatPrice(shopRates.minShopRate)}/hr
+                  </div>
+                )}
+              </div>
+            )}
             <div className="text-right">
               <div className="kpi-label">Per-Location Breakdown</div>
               <div className="tnum" style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>

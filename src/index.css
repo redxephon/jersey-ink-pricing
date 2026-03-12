@@ -441,3 +441,45 @@ select.rf-select:focus {
 .rf-table tbody td:hover {
   filter: brightness(1.15);
 }
+
+/* ── Panel border accents ── */
+.panel-inset-green {
+  border-left: 3px solid var(--ji-green);
+}
+
+.panel-inset-amber {
+  border-left: 3px solid var(--fund-amber);
+}
+
+.panel-inset-blue {
+  border-left: 3px solid var(--client-blue);
+}
+
+/* ── Tab bar scroll (mobile) ── */
+.tab-bar-scroll {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  position: relative;
+}
+
+.tab-bar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Short labels hidden by default, shown on small screens */
+.tab-label-short {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .tab-label-full {
+    display: none;
+  }
+  .tab-label-short {
+    display: inline;
+  }
+}

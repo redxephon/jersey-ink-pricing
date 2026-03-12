@@ -1,14 +1,16 @@
 import { useState } from "react";
 import ScreenPrintCalculator from "./ScreenPrintCalculator";
+import EmbroideryCalculator from "./EmbroideryCalculator";
+import DTFCalculator from "./DTFCalculator";
 import WebstoreCalculator from "./WebstoreCalculator";
 import ShopEconomics from "./ShopEconomics";
 
 const MODES = [
-  { id: "screenprint", label: "Screen Print" },
-  { id: "embroidery", label: "Embroidery" },
-  { id: "dtf", label: "DTF" },
-  { id: "webstore", label: "Webstore" },
-  { id: "economics", label: "Shop Economics" },
+  { id: "screenprint", label: "Screen Print", shortLabel: "Print" },
+  { id: "embroidery", label: "Embroidery", shortLabel: "Emb" },
+  { id: "dtf", label: "DTF", shortLabel: "DTF" },
+  { id: "webstore", label: "Webstore", shortLabel: "Store" },
+  { id: "economics", label: "Shop Economics", shortLabel: "Econ" },
 ];
 
 export default function App() {
@@ -75,8 +77,8 @@ export default function App() {
             </span>
           </div>
 
-          {/* Mode segmented control */}
-          <div className="flex flex-wrap" style={{ background: "var(--bg-deep)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", padding: 2 }}>
+          {/* Mode segmented control — scrollable on mobile */}
+          <div className="tab-bar-scroll" style={{ background: "var(--bg-deep)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", padding: 2 }}>
             {MODES.map((m) => (
               <button
                 key={m.id}
@@ -93,9 +95,12 @@ export default function App() {
                   border: mode === m.id ? "1px solid var(--border-medium)" : "1px solid transparent",
                   cursor: "pointer",
                   transition: "all 0.15s ease",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
                 }}
               >
-                {m.label}
+                <span className="tab-label-full">{m.label}</span>
+                <span className="tab-label-short">{m.shortLabel}</span>
               </button>
             ))}
           </div>
@@ -113,18 +118,8 @@ export default function App() {
             quickBreakdown={null}
           />
         )}
-        {mode === "embroidery" && (
-          <div className="panel p-4 mb-4">
-            <h2 className="section-label mb-3">Embroidery Calculator</h2>
-            <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Coming soon — stitch count pricing, thread colors, hooping, digitizing fees.</p>
-          </div>
-        )}
-        {mode === "dtf" && (
-          <div className="panel p-4 mb-4">
-            <h2 className="section-label mb-3">DTF Calculator</h2>
-            <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Coming soon — transfer sizing, gang sheet optimization, film + ink costing.</p>
-          </div>
-        )}
+        {mode === "embroidery" && <EmbroideryCalculator shopEconomics={shopEconomics} />}
+        {mode === "dtf" && <DTFCalculator shopEconomics={shopEconomics} />}
 
         {/* Footer */}
         <div className="text-center mt-6 pb-4" style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'DM Sans', sans-serif" }}>

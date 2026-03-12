@@ -106,6 +106,7 @@ export default function ShopEconomics({
   // Weekly progress
   const weeklyTarget = dashboard.weeklyRevenue;
   const weeklyPct = weeklyTarget > 0 ? Math.min(100, (revenueBooked / weeklyTarget) * 100) : 0;
+  const hoursPct = dashboard.productiveHrsPerWeek > 0 ? Math.min(100, (hoursBooked / dashboard.productiveHrsPerWeek) * 100) : 0;
 
   return (
     <div className="panel p-4 mb-4">
@@ -114,9 +115,31 @@ export default function ShopEconomics({
       {/* ═══ DASHBOARD (always visible, top) ═══ */}
       <div style={{ marginBottom: 20 }}>
 
+        {/* Shop Settings Summary — Mini KPI Grid */}
+        <div className="flex flex-wrap gap-4 mb-4" style={{ fontSize: 12 }}>
+          {[
+            { label: "Monthly Costs", value: fmtK(monthlyCosts) },
+            { label: "Imp/hr", value: impressionsPerHour.toString() },
+            { label: "Utilization", value: utilization + "%" },
+            { label: "Margin", value: targetMargin + "%" },
+          ].map(({ label, value }) => (
+            <div key={label} className="panel-inset p-2 text-center" style={{ minWidth: 80, flex: 1 }}>
+              <div className="tnum" style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>{value}</div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 2 }}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Hint when no job configured */}
+        {!hasJob && (
+          <div className="alert-info" style={{ padding: "8px 12px", fontSize: 12, marginBottom: 16 }}>
+            Configure a job in Screen Print, Embroidery, or DTF to preview it here.
+          </div>
+        )}
+
         {/* Revenue & Break-Even Targets side by side */}
         <div className="econ-dashboard-grid" style={{ marginBottom: 16 }}>
-          <div className="panel-inset p-3">
+          <div className="panel-inset panel-inset-green p-3">
             <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ji-green)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
               Revenue Targets
             </div>
@@ -147,9 +170,26 @@ export default function ShopEconomics({
                   borderRadius: "var(--radius-sm)", transition: "width 0.3s ease",
                 }} />
               </div>
+
+              {/* Hours progress bar */}
+              <div style={{ marginTop: 8 }}>
+                <div className="flex items-center justify-between" style={{ fontSize: 11, marginBottom: 4 }}>
+                  <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>Hours This Week</span>
+                  <span className="tnum" style={{ fontWeight: 600, color: hoursPct >= 100 ? "var(--ji-green)" : "var(--text-secondary)" }}>
+                    {hoursBooked.toFixed(1)}h / {dashboard.productiveHrsPerWeek.toFixed(1)}h ({hoursPct.toFixed(0)}%)
+                  </span>
+                </div>
+                <div className="alloc-track" style={{ height: 12 }}>
+                  <div style={{
+                    height: "100%", width: `${Math.min(100, hoursPct)}%`,
+                    background: hoursPct >= 100 ? "var(--ji-green)" : hoursPct >= 50 ? "var(--client-blue)" : "var(--text-muted)",
+                    borderRadius: "var(--radius-sm)", transition: "width 0.3s ease",
+                  }} />
+                </div>
+              </div>
             </div>
           </div>
-          <div className="panel-inset p-3">
+          <div className="panel-inset panel-inset-amber p-3">
             <div style={{ fontSize: 12, fontWeight: 700, color: "var(--fund-amber)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
               Break-Even Targets
             </div>
@@ -168,15 +208,15 @@ export default function ShopEconomics({
         </div>
 
         {/* Estimated Rates */}
-        <div className="panel-inset p-3" style={{ marginBottom: 16 }}>
+        <div className="panel-inset panel-inset-blue p-3" style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "var(--client-blue)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
             Estimated Rates
           </div>
           {[
-            { label: "Hourly shop rate MINIMUM", value: fmt(dashboard.minShopRate), color: "var(--fund-amber)" },
-            { label: "Hourly shop rate IDEAL", value: fmt(dashboard.idealShopRate), color: "var(--ji-green)" },
-            { label: "Cost / Impression (full capacity)", value: fmt(dashboard.costPerImpression) },
-            { label: "Cost / Impression (w/ utilization)", value: fmt(dashboard.costPerImpressionUtil) },
+            { label: "Min $/hr", value: fmt(dashboard.minShopRate), color: "var(--fund-amber)" },
+            { label: "Ideal $/hr", value: fmt(dashboard.idealShopRate), color: "var(--ji-green)" },
+            { label: "Cost/Imp (100%)", value: fmt(dashboard.costPerImpression) },
+            { label: "Cost/Imp (actual)", value: fmt(dashboard.costPerImpressionUtil) },
           ].map(({ label, value, color }) => (
             <div key={label} className="flex justify-between" style={{ fontSize: 12, padding: "3px 0" }}>
               <span style={{ color: "var(--text-muted)" }}>{label}</span>

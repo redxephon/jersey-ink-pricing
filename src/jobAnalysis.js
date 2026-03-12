@@ -91,6 +91,34 @@ export function findBreakEvenQty(params, locations, increase, perUnitAddOns, com
   return null;
 }
 
+export function calcEmbroideryTime(stitchCount, qty, threadColors = 1) {
+  const stitchesPerMin = 800;
+  const sewTimePerUnit = stitchCount / stitchesPerMin; // minutes
+  const hoopTimePerUnit = 0.75; // minutes
+  const setupMinutes = 10 + threadColors * 3;
+  const totalMinutes = setupMinutes + (sewTimePerUnit + hoopTimePerUnit) * qty;
+  return { setupMinutes, totalMinutes, totalHours: totalMinutes / 60 };
+}
+
+export function calcDTFTime(qty, pressTimeSec = 15, setupMinutes = 5) {
+  const pressMinutes = (pressTimeSec * qty) / 60;
+  const totalMinutes = setupMinutes + pressMinutes;
+  return { setupMinutes, pressMinutes, totalMinutes, totalHours: totalMinutes / 60 };
+}
+
+export function calcShopRates(shopEconomics) {
+  if (!shopEconomics) return null;
+  const { costItems, utilization, hoursPerDay, numPresses, daysPerWeek, targetMargin } = shopEconomics;
+  const monthlyCosts = costItems.reduce((s, c) => s + c.amount, 0);
+  const util = utilization / 100;
+  const margin = targetMargin / 100;
+  const productiveHrsPerMonth = hoursPerDay * util * numPresses * daysPerWeek * 4.33;
+  const minShopRate = productiveHrsPerMonth > 0 ? monthlyCosts / productiveHrsPerMonth : 0;
+  const monthlyRevenue = margin < 1 ? monthlyCosts / (1 - margin) : monthlyCosts * 10;
+  const idealShopRate = productiveHrsPerMonth > 0 ? monthlyRevenue / productiveHrsPerMonth : 0;
+  return { minShopRate, idealShopRate, monthlyCosts, productiveHrsPerMonth };
+}
+
 export function buildProfitabilityTable(params, locations, increase, perUnitAddOns, complexityCostAdder, complexity, garmentCost, garmentMarkup, pantoneColors, qtyTiers) {
   const totalScreens = locations.reduce((s, l) => s + l.screens, 0);
   const screenFees = totalScreens * 27;
