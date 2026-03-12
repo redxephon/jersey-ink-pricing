@@ -120,6 +120,7 @@ export default function App() {
             {/* Theme toggle */}
             <button
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               style={{
                 width: 32, height: 32, borderRadius: "var(--radius-sm)",

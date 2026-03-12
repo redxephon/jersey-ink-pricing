@@ -69,28 +69,6 @@ export function findMinProfitableQty(params, locations, increase, perUnitAddOns,
   return null;
 }
 
-export function findBreakEvenQty(params, locations, increase, perUnitAddOns, complexityCostAdder) {
-  for (let q = 1; q <= 2500; q++) {
-    let printCost = 0;
-    let printSell = 0;
-    let valid = true;
-    for (const loc of locations) {
-      const p = params[loc.screens - 1];
-      if (!p) { valid = false; break; }
-      printCost += p.setup / q + p.variable;
-      printSell += (1 + increase / 100) * (p.setup / q + p.variable);
-    }
-    if (!valid) continue;
-    const sellPerUnit = printSell + perUnitAddOns + complexityCostAdder;
-    const costPerUnit = printCost + perUnitAddOns + complexityCostAdder;
-    const screenFees = locations.reduce((s, l) => s + l.screens, 0) * 27;
-    const totalRevenue = sellPerUnit * q;
-    const totalCost = costPerUnit * q + screenFees;
-    if (totalRevenue >= totalCost) return q;
-  }
-  return null;
-}
-
 export function calcEmbroideryTime(stitchCount, qty, threadColors = 1, numHeads = 1) {
   const stitchesPerMin = 700; // realistic commercial SPM (was 800)
   const sewTimePerUnit = stitchCount / stitchesPerMin; // minutes
@@ -137,7 +115,7 @@ export function buildProfitabilityTable(params, locations, increase, perUnitAddO
     const sellPerUnit = printSell + perUnitAddOns + complexityCostAdder + garmentSell;
     const costPerUnit = printCost + perUnitAddOns + complexityCostAdder + garmentCost;
     const totalRevenue = sellPerUnit * q + screenFees + pantoneFees;
-    const totalCost = costPerUnit * q + screenFees + pantoneFees;
+    const totalCost = costPerUnit * q;
     const profit = totalRevenue - totalCost;
     const pressTime = calcPressTime(totalScreens, q, complexity);
     const dollarsPerHour = pressTime.totalHours > 0 ? profit / pressTime.totalHours : 0;

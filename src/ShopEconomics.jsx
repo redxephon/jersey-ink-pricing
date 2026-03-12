@@ -1,14 +1,5 @@
 import { useMemo } from "react";
-
-function fmt(val) {
-  return "$" + val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtK(val) {
-  if (val >= 100000) return "$" + (val / 1000).toFixed(1) + "k";
-  if (val >= 1000) return "$" + Math.round(val).toLocaleString("en-US");
-  return fmt(val);
-}
+import { fmt, fmtK } from "./fmt";
 
 export default function ShopEconomics({
   costItems, setCostItems,

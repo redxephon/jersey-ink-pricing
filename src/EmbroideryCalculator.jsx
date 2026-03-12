@@ -4,9 +4,8 @@ import {
   EMB_OVERFLOW_RATE, EMB_FEES, EMB_SIZING, lookupEmbPrice,
 } from "./embroideryData";
 import { calcEmbroideryTime, calcJobScore, calcShopRates } from "./jobAnalysis";
+import { fmt } from "./fmt";
 import ProfitAlerts from "./ProfitAlerts";
-
-function fmt(v) { return "$" + v.toFixed(2); }
 
 export default function EmbroideryCalculator({ shopEconomics }) {
   const [stitchTierIdx, setStitchTierIdx] = useState(5); // 7-8K default
@@ -62,7 +61,9 @@ export default function EmbroideryCalculator({ shopEconomics }) {
 
   const rushMultiplier = 1 + rushFee / 100;
   const allInPerUnit = (embPrice + perUnitFees) * rushMultiplier + garmentSell;
-  const costPerUnit = embPrice * 0.45 + perUnitFees + garmentCost;
+  // Estimated COGS ratio — embroidery cost is ~45% of sell price (thread, backing, machine time)
+  const EMB_COGS_RATIO = 0.45;
+  const costPerUnit = embPrice * EMB_COGS_RATIO + perUnitFees + garmentCost;
   const profitPerUnit = allInPerUnit - costPerUnit;
   const marginPct = allInPerUnit > 0 ? (profitPerUnit / allInPerUnit) * 100 : 0;
   const orderTotal = allInPerUnit * qty + effectiveDigitizing * numLocations;
@@ -101,7 +102,7 @@ export default function EmbroideryCalculator({ shopEconomics }) {
     for (let q = 1; q <= 1000; q++) {
       const price = lookupEmbPrice(stitchCount, q, embPrices, EMB_STITCH_TIERS, EMB_QTY_TIERS, overflowRate) * numLocations;
       const allIn = (price + perUnitFees) * rushMultiplier + garmentSell;
-      const cost = price * 0.45 + perUnitFees + garmentCost;
+      const cost = price * EMB_COGS_RATIO + perUnitFees + garmentCost;
       const profit = (allIn - cost) * q;
       const time = calcEmbroideryTime(stitchCount * numLocations, q, threadColors, numHeads);
       if (time.totalHours > 0 && profit / time.totalHours >= targetHourlyRate) return q;
@@ -320,7 +321,7 @@ export default function EmbroideryCalculator({ shopEconomics }) {
               width: 36, height: 36, borderRadius: "50%", margin: "0 auto 6px",
               background: jobScore.score >= 70 ? "var(--ji-green)" : jobScore.score >= 40 ? "var(--fund-amber)" : "var(--warn-red)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 14, fontWeight: 700, color: "var(--bg-deep)", fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: "'JetBrains Mono', monospace",
             }}>
               {jobScore.score}
             </div>
@@ -446,10 +447,8 @@ export default function EmbroideryCalculator({ shopEconomics }) {
                 <tr>
                   <th style={{ textAlign: "left", paddingLeft: 12, width: 90 }}>Stitches</th>
                   {EMB_QTY_TIERS.map((t, qi) => (
-                    <th key={t.label} style={{
+                    <th key={t.label} className={qi === activeQtyCol ? "rc-header-highlight" : ""} style={{
                       textAlign: "center",
-                      color: qi === activeQtyCol ? "var(--ji-green)" : undefined,
-                      background: qi === activeQtyCol ? "rgba(52, 211, 153, 0.08)" : undefined,
                     }}>{t.label}</th>
                   ))}
                 </tr>
@@ -469,13 +468,9 @@ export default function EmbroideryCalculator({ shopEconomics }) {
                           <td
                             key={qi}
                             onClick={() => handleCellClick(si, qi)}
+                            className={isHighlighted ? "rc-highlight-active" : isColHighlight ? "rc-highlight-col" : isActiveRow ? "rc-highlight-row" : ""}
                             style={{
                               textAlign: "center", padding: "7px 6px", cursor: "pointer",
-                              background: isHighlighted ? "rgba(52, 211, 153, 0.12)"
-                                : isColHighlight ? "rgba(52, 211, 153, 0.04)"
-                                : isActiveRow ? "rgba(52, 211, 153, 0.04)" : undefined,
-                              boxShadow: isHighlighted ? "inset 0 0 0 1px rgba(52, 211, 153, 0.3)" : undefined,
-                              borderRadius: isHighlighted ? "var(--radius-sm)" : undefined,
                               transition: "background 0.15s ease",
                             }}
                           >

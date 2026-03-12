@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { calcPressTime, calcComplexityCostAdder, calcJobScore, calcShopRates, findMinProfitableQty } from "./jobAnalysis";
+import { fmt } from "./fmt";
 import ProfitAlerts from "./ProfitAlerts";
 import ProfitabilityAnalysis from "./ProfitabilityAnalysis";
 
@@ -46,10 +47,6 @@ const SCREEN_COLORS = [
 function calcPrice(setup, variable, qty, increase) {
   if (qty <= 0) return 0;
   return (1 + increase / 100) * (setup / qty + variable);
-}
-
-function formatPrice(val) {
-  return "$" + val.toFixed(2);
 }
 
 function formatPct(val) {
@@ -332,7 +329,7 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
         {/* Fee Toggles */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2" style={{ fontSize: 12, color: "var(--text-muted)" }}>
           <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
-            Screens: {locations.reduce((s, l) => s + l.screens, 0)} total ({formatPrice(27.0 * locations.reduce((s, l) => s + l.screens, 0))})
+            Screens: {locations.reduce((s, l) => s + l.screens, 0)} total ({fmt(27.0 * locations.reduce((s, l) => s + l.screens, 0))})
           </span>
           <span style={{ color: "var(--border-medium)" }}>|</span>
           {[
@@ -394,7 +391,7 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
           </label>
           {garmentCost > 0 && (
             <span className="tnum" style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
-              = {formatPrice(garmentCost * (1 + garmentMarkup / 100))}/ea
+              = {fmt(garmentCost * (1 + garmentMarkup / 100))}/ea
             </span>
           )}
         </div>
@@ -445,7 +442,7 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
                   width: 36, height: 36, borderRadius: "50%", margin: "0 auto 6px",
                   background: jobProfitability.score >= 70 ? "var(--ji-green)" : jobProfitability.score >= 40 ? "var(--fund-amber)" : "var(--warn-red)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 14, fontWeight: 700, color: "var(--bg-deep)",
+                  fontSize: 14, fontWeight: 700, color: "#fff",
                   fontFamily: "'JetBrains Mono', monospace",
                 }}>
                   {jobProfitability.score}
@@ -458,34 +455,34 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
             <div className="panel-inset p-3 text-right">
               <div className="kpi-label mb-1">Per Unit (all-in)</div>
               <div className="kpi-value" style={{ color: "var(--ji-green)" }}>
-                {formatPrice(quickBreakdown.allInWithGarment)}
+                {fmt(quickBreakdown.allInWithGarment)}
               </div>
               <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                 {quickBreakdown.locationDetails.map((d, i) => (
-                  <span key={i}>{i > 0 && " + "}{formatPrice(d.price)} {d.label.toLowerCase()}</span>
+                  <span key={i}>{i > 0 && " + "}{fmt(d.price)} {d.label.toLowerCase()}</span>
                 ))}
                 {quickBreakdown.perUnitAddOns > 0 && (
-                  <span> + {formatPrice(quickBreakdown.perUnitAddOns)} fees</span>
+                  <span> + {fmt(quickBreakdown.perUnitAddOns)} fees</span>
                 )}
                 {quickBreakdown.garmentSell > 0 && (
-                  <span> + {formatPrice(quickBreakdown.garmentSell)} garment</span>
+                  <span> + {fmt(quickBreakdown.garmentSell)} garment</span>
                 )}
               </div>
             </div>
             <div className="text-right">
               <div className="kpi-label">Screen Fees</div>
               <div className="tnum" style={{ fontSize: 22, fontWeight: 600, color: "var(--text-primary)" }}>
-                {formatPrice(quickBreakdown.totalScreenFees)}
+                {fmt(quickBreakdown.totalScreenFees)}
               </div>
               <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                 $27 × {quickBreakdown.totalScreens} screen{quickBreakdown.totalScreens > 1 ? "s" : ""}
-                {quickBreakdown.pantoneFees > 0 && <><br />+ {formatPrice(quickBreakdown.pantoneFees)} Pantone</>}
+                {quickBreakdown.pantoneFees > 0 && <><br />+ {fmt(quickBreakdown.pantoneFees)} Pantone</>}
               </div>
             </div>
             <div className="text-right">
               <div className="kpi-label">Order Total</div>
               <div className="tnum" style={{ fontSize: 22, fontWeight: 700, color: "var(--ji-green)" }}>
-                {formatPrice(quickBreakdown.orderTotal)}
+                {fmt(quickBreakdown.orderTotal)}
               </div>
               <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                 {quickQty} units
@@ -500,10 +497,10 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
                 {quickBreakdown.marginPct.toFixed(1)}%
               </div>
               <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                {formatPrice(quickBreakdown.profitPerUnit)}/unit profit
+                {fmt(quickBreakdown.profitPerUnit)}/unit profit
               </div>
               <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                cost {formatPrice(quickBreakdown.costPerUnit)} → sell {formatPrice(quickBreakdown.sellPerUnit)}
+                cost {fmt(quickBreakdown.costPerUnit)} → sell {fmt(quickBreakdown.sellPerUnit)}
               </div>
             </div>
             {jobProfitability && (
@@ -516,14 +513,14 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
                     : jobProfitability.dollarsPerHour >= (shopRates?.minShopRate || targetHourlyRate) * 0.5
                       ? "var(--fund-amber)" : "var(--warn-red)",
                 }}>
-                  {formatPrice(jobProfitability.dollarsPerHour)}
+                  {fmt(jobProfitability.dollarsPerHour)}
                 </div>
                 <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                   ~{pressTime.totalHours.toFixed(1)}hrs
                 </div>
                 {shopRates && jobProfitability.dollarsPerHour < shopRates.minShopRate && (
                   <div style={{ fontSize: 10, color: "var(--warn-red)", marginTop: 2 }}>
-                    Below min {formatPrice(shopRates.minShopRate)}/hr
+                    Below min {fmt(shopRates.minShopRate)}/hr
                   </div>
                 )}
               </div>
@@ -533,7 +530,7 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
               <div className="tnum" style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
                 {quickBreakdown.locationDetails.map((d, i) => (
                   <div key={i}>
-                    {d.label}: {formatPrice(d.price)}/ea × {d.screens} screen{d.screens > 1 ? "s" : ""}
+                    {d.label}: {fmt(d.price)}/ea × {d.screens} screen{d.screens > 1 ? "s" : ""}
                   </div>
                 ))}
               </div>
@@ -593,10 +590,8 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
                 <tr>
                   <th style={{ textAlign: "left", paddingLeft: 12, width: 70 }}>Screens</th>
                   {QTY_TIERS.map((tier, qi) => (
-                    <th key={tier.label} style={{
+                    <th key={tier.label} className={qi === activeQtyCol ? "rc-header-highlight" : ""} style={{
                       textAlign: "center",
-                      color: qi === activeQtyCol ? "var(--ji-green)" : undefined,
-                      background: qi === activeQtyCol ? "rgba(52, 211, 153, 0.08)" : undefined,
                     }}>{tier.label}</th>
                   ))}
                 </tr>
@@ -620,15 +615,10 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
                         <td
                           key={qi}
                           onClick={() => price !== null && handleCellClick(si, qi)}
+                          className={isHighlighted ? "rc-highlight-active" : isColHighlight ? "rc-highlight-col" : isRowHighlight ? "rc-highlight-row" : ""}
                           style={{
                             textAlign: "center", padding: "8px 6px",
                             cursor: price !== null ? "pointer" : "default",
-                            background: isHighlighted ? "rgba(52, 211, 153, 0.12)"
-                              : isColHighlight ? "rgba(52, 211, 153, 0.04)"
-                              : isRowHighlight ? "rgba(52, 211, 153, 0.04)"
-                              : undefined,
-                            boxShadow: isHighlighted ? "inset 0 0 0 1px rgba(52, 211, 153, 0.3)" : undefined,
-                            borderRadius: isHighlighted ? "var(--radius-sm)" : undefined,
                             transition: "background 0.15s ease",
                           }}
                         >
@@ -637,7 +627,7 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
                           ) : (
                             <div>
                               <div className="tnum" style={{ fontWeight: 600, color: isHighlighted ? "var(--ji-green)" : "var(--text-primary)", fontSize: 13 }}>
-                                {formatPrice(price)}
+                                {fmt(price)}
                               </div>
                               {showComparison && pctChange !== null && (
                                 <div className="tnum" style={{

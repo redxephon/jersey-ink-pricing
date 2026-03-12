@@ -477,6 +477,60 @@ select.rf-select:focus {
   filter: brightness(1.15);
 }
 
+/* ── Rate card highlight classes (theme-aware) ── */
+.rc-highlight-active {
+  background: rgba(52, 211, 153, 0.12) !important;
+  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.3);
+  border-radius: var(--radius-sm);
+}
+.rc-highlight-col,
+.rc-highlight-row {
+  background: rgba(52, 211, 153, 0.04) !important;
+}
+[data-theme="light"] .rc-highlight-active {
+  background: rgba(5, 150, 105, 0.14) !important;
+  box-shadow: inset 0 0 0 1px rgba(5, 150, 105, 0.35);
+}
+[data-theme="light"] .rc-highlight-col,
+[data-theme="light"] .rc-highlight-row {
+  background: rgba(5, 150, 105, 0.06) !important;
+}
+
+/* ── Theme-aware button active highlights ── */
+.btn-highlight-green {
+  border: 1px solid var(--ji-green);
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--ji-green);
+}
+[data-theme="light"] .btn-highlight-green {
+  background: rgba(5, 150, 105, 0.1);
+}
+.btn-highlight-amber {
+  border: 1px solid var(--fund-amber);
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--fund-amber);
+}
+[data-theme="light"] .btn-highlight-amber {
+  background: rgba(217, 119, 6, 0.1);
+}
+.btn-highlight-blue {
+  border: 1px solid var(--client-blue);
+  background: rgba(96, 165, 250, 0.1);
+  color: var(--client-blue);
+}
+[data-theme="light"] .btn-highlight-blue {
+  background: rgba(37, 99, 235, 0.1);
+}
+
+/* ── Rate card header highlight ── */
+.rc-header-highlight {
+  color: var(--ji-green) !important;
+  background: rgba(52, 211, 153, 0.08);
+}
+[data-theme="light"] .rc-header-highlight {
+  background: rgba(5, 150, 105, 0.08);
+}
+
 /* ── Panel border accents ── */
 .panel-inset-green {
   border-left: 3px solid var(--ji-green);

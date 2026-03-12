@@ -8,9 +8,8 @@ import {
   calcDTFPrice, calcDTFTime, buildDTFRateCard, calcGangSheetCost,
 } from "./dtfPricing";
 import { calcJobScore, calcShopRates } from "./jobAnalysis";
+import { fmt } from "./fmt";
 import ProfitAlerts from "./ProfitAlerts";
-
-function fmt(v) { return "$" + v.toFixed(2); }
 
 export default function DTFCalculator({ shopEconomics }) {
   const [sizePreset, setSizePreset] = useState("standard");
@@ -346,7 +345,7 @@ export default function DTFCalculator({ shopEconomics }) {
               width: 36, height: 36, borderRadius: "50%", margin: "0 auto 6px",
               background: jobScore.score >= 70 ? "var(--ji-green)" : jobScore.score >= 40 ? "var(--fund-amber)" : "var(--warn-red)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 14, fontWeight: 700, color: "var(--bg-deep)", fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: "'JetBrains Mono', monospace",
             }}>
               {jobScore.score}
             </div>
@@ -554,10 +553,8 @@ export default function DTFCalculator({ shopEconomics }) {
                 <tr>
                   <th style={{ textAlign: "left", paddingLeft: 12 }}>Size</th>
                   {DTF_QTY_TIERS.map((t, qi) => (
-                    <th key={t.label} style={{
+                    <th key={t.label} className={qi === activeQtyCol ? "rc-header-highlight" : ""} style={{
                       textAlign: "center",
-                      color: qi === activeQtyCol ? "var(--ji-green)" : undefined,
-                      background: qi === activeQtyCol ? "rgba(52, 211, 153, 0.08)" : undefined,
                     }}>{t.label}</th>
                   ))}
                 </tr>
@@ -579,13 +576,9 @@ export default function DTFCalculator({ shopEconomics }) {
                           <td
                             key={qi}
                             onClick={() => { setSizePreset(preset.key); setQty(DTF_QTY_TIERS[qi].rep); }}
+                            className={isHighlighted ? "rc-highlight-active" : isColHighlight ? "rc-highlight-col" : isActiveRow ? "rc-highlight-row" : ""}
                             style={{
                               textAlign: "center", padding: "8px 6px", cursor: "pointer",
-                              background: isHighlighted ? "rgba(52, 211, 153, 0.12)"
-                                : isColHighlight ? "rgba(52, 211, 153, 0.04)"
-                                : isActiveRow ? "rgba(52, 211, 153, 0.04)" : undefined,
-                              boxShadow: isHighlighted ? "inset 0 0 0 1px rgba(52, 211, 153, 0.3)" : undefined,
-                              borderRadius: isHighlighted ? "var(--radius-sm)" : undefined,
                               transition: "background 0.15s ease",
                             }}
                           >

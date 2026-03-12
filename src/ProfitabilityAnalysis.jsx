@@ -1,9 +1,6 @@
 import { useMemo } from "react";
 import { buildProfitabilityTable } from "./jobAnalysis";
-
-function formatPrice(val) {
-  return "$" + val.toFixed(2);
-}
+import { fmt } from "./fmt";
 
 export default function ProfitabilityAnalysis({
   params, locations, increase, perUnitAddOns, complexityCostAdder, complexity,
@@ -47,15 +44,15 @@ export default function ProfitabilityAnalysis({
       <div className="panel-inset p-3 mb-4" style={{ fontSize: 13 }}>
         <span style={{ color: "var(--text-muted)" }}>
           {breakEvenRow ? (
-            <>Break-even at <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{breakEvenRow.qty} units</span> ({formatPrice(breakEvenRow.pricePerUnit)}/ea)</>
+            <>Break-even at <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{breakEvenRow.qty} units</span> ({fmt(breakEvenRow.pricePerUnit)}/ea)</>
           ) : (
             <span style={{ color: "var(--warn-red)" }}>No break-even found in range</span>
           )}
           {" | "}
           {targetRow ? (
-            <>Target {formatPrice(targetProfit)} profit at <span style={{ fontWeight: 700, color: "var(--ji-green)" }}>{targetRow.qty} units</span> ({formatPrice(targetRow.pricePerUnit)}/ea)</>
+            <>Target {fmt(targetProfit)} profit at <span style={{ fontWeight: 700, color: "var(--ji-green)" }}>{targetRow.qty} units</span> ({fmt(targetRow.pricePerUnit)}/ea)</>
           ) : (
-            <span style={{ color: "var(--fund-amber)" }}>Need 2000+ units for {formatPrice(targetProfit)} profit</span>
+            <span style={{ color: "var(--fund-amber)" }}>Need 2000+ units for {fmt(targetProfit)} profit</span>
           )}
         </span>
       </div>
@@ -94,14 +91,14 @@ export default function ProfitabilityAnalysis({
               return (
                 <tr key={row.qty} className={rowClass} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                   <td className="tnum" style={{ textAlign: "center", padding: "8px 6px", fontWeight: 600 }}>{row.label}</td>
-                  <td className="tnum" style={{ textAlign: "center", padding: "8px 6px" }}>{formatPrice(row.pricePerUnit)}</td>
-                  <td className="tnum" style={{ textAlign: "center", padding: "8px 6px" }}>{formatPrice(row.totalRevenue)}</td>
-                  <td className="tnum" style={{ textAlign: "center", padding: "8px 6px", color: "var(--text-muted)" }}>{formatPrice(row.totalCost)}</td>
+                  <td className="tnum" style={{ textAlign: "center", padding: "8px 6px" }}>{fmt(row.pricePerUnit)}</td>
+                  <td className="tnum" style={{ textAlign: "center", padding: "8px 6px" }}>{fmt(row.totalRevenue)}</td>
+                  <td className="tnum" style={{ textAlign: "center", padding: "8px 6px", color: "var(--text-muted)" }}>{fmt(row.totalCost)}</td>
                   <td className="tnum" style={{ textAlign: "center", padding: "8px 6px", fontWeight: 600, color: isLoss ? "var(--warn-red)" : "var(--ji-green)" }}>
-                    {isLoss ? "-" : ""}{formatPrice(Math.abs(row.profit))}
+                    {isLoss ? "-" : ""}{fmt(Math.abs(row.profit))}
                   </td>
                   <td className="tnum" style={{ textAlign: "center", padding: "8px 6px", color: hrColor, fontWeight: 600 }}>
-                    {formatPrice(row.dollarsPerHour)}
+                    {fmt(row.dollarsPerHour)}
                   </td>
                   <td style={{ textAlign: "center", padding: "8px 6px" }}>
                     <span style={{
