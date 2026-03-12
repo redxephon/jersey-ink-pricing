@@ -598,13 +598,13 @@ export default function WebstoreCalculator() {
       )}
 
       {/* Product Table */}
-      <div className="panel overflow-hidden mb-4">
+      <div className={`panel mb-4 ${openDecoId ? "" : "overflow-hidden"}`}>
         <div className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
           <h2 style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>
             {isClient ? "Products" : "Product Pricing Table"}
           </h2>
         </div>
-        <div className="overflow-x-auto">
+        <div className={openDecoId ? "" : "overflow-x-auto"}>
           <table className="rf-table">
             <thead>
               <tr>
@@ -657,7 +657,7 @@ export default function WebstoreCalculator() {
               {calculated.map(({ item, calc, effectiveCogs, cogsTooltip }) => {
                 if (isClient && item.qty === 0) return null;
                 return (
-                  <tr key={item.id} className={rowHealthClass(calc.marginPct, item.qty)} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                  <tr key={item.id} className={rowHealthClass(calc.marginPct, item.qty)} style={{ borderBottom: "1px solid var(--border-subtle)", position: openDecoId === item.id ? "relative" : undefined, zIndex: openDecoId === item.id ? 20 : undefined }}>
                     {!isClient && (
                       <td style={{ textAlign: "center", padding: "4px 2px" }}>
                         <button
