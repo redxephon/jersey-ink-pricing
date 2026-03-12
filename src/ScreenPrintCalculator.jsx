@@ -163,7 +163,11 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
       (includeSleeve ? 0.25 * locations.length : 0) +
       (includeUnbag ? 0.15 : 0);
     const pantoneFees = pantoneColors * 15.0;
-    const allInPerUnit = totalPrintPerUnit + perUnitAddOns;
+    const complexityAdder = calcComplexityCostAdder({
+      underbase: hasUnderbase, flashCure: hasFlashCure,
+      specialtyInk: hasSpecialtyInk, oversized: hasOversized,
+    });
+    const allInPerUnit = totalPrintPerUnit + perUnitAddOns + complexityAdder;
     const garmentSell = garmentCost * (1 + garmentMarkup / 100);
     const allInWithGarment = allInPerUnit + garmentSell;
     const printSubtotal = allInWithGarment * quickQty;
@@ -178,6 +182,7 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
       totalScreenFees,
       pantoneFees,
       perUnitAddOns,
+      complexityAdder,
       allInPerUnit,
       garmentSell,
       allInWithGarment,
@@ -190,7 +195,7 @@ export default function ScreenPrintCalculator({ shopEconomics }) {
       profitPerUnit,
       marginPct,
     };
-  }, [locations, params, quickQty, increase, includeFoldBag, includeFleece, includeSticker, includeSleeve, includeUnbag, pantoneColors, garmentCost, garmentMarkup]);
+  }, [locations, params, quickQty, increase, includeFoldBag, includeFleece, includeSticker, includeSleeve, includeUnbag, pantoneColors, garmentCost, garmentMarkup, hasUnderbase, hasFlashCure, hasSpecialtyInk, hasOversized]);
 
   const complexity = useMemo(() => ({
     underbase: hasUnderbase, flashCure: hasFlashCure, specialtyInk: hasSpecialtyInk,

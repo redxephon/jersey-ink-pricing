@@ -60,7 +60,7 @@ export default function DTFCalculator({ shopEconomics }) {
   const gangSheet = GANG_SHEET_SIZES[gangSheetIdx];
   const gangSheetInfo = useMemo(() => {
     if (!gangSheet) return null;
-    return calcGangSheetCost(gangSheet.w, gangSheet.h, transferW, transferH);
+    return calcGangSheetCost(gangSheet.cost, gangSheet.w, gangSheet.h, transferW, transferH);
   }, [gangSheet, transferW, transferH]);
 
   const isSmallOrder = qty < SMALL_ORDER_THRESHOLD;
