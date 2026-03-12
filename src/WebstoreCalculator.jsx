@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { DECO_TYPES, estimateDecoCogs, getDecoParamOptions, getDefaultDecoParam } from "./decoCostEstimator";
 
 const DEFAULT_SETTINGS = {
   jiFeePct: 15,
@@ -14,20 +15,20 @@ const DEFAULT_SETTINGS = {
 };
 
 const DEFAULT_ITEMS = [
-  { id: 1, product: "Womens Fitted Tee", location: "Front", decoCogs: 5.38, apparelCost: 3.39, qty: 5 },
-  { id: 2, product: "Youth Crewneck Sweatshirt", location: "Front", decoCogs: 5.38, apparelCost: 6.92, qty: 0 },
-  { id: 3, product: "Youth Hooded Sweatshirt", location: "Front", decoCogs: 5.38, apparelCost: 11.10, qty: 4 },
-  { id: 4, product: "Womens Tank Top", location: "Front", decoCogs: 5.38, apparelCost: 3.61, qty: 1 },
-  { id: 5, product: "Carhartt Hoodie", location: "Front", decoCogs: 5.38, apparelCost: 45.64, qty: 4 },
-  { id: 6, product: "Women's Fleece Jacket", location: "Back", decoCogs: 5.38, apparelCost: 24.83, qty: 0 },
-  { id: 7, product: "Carhartt Mock Zip Hoodie", location: "Back", decoCogs: 5.38, apparelCost: 49.44, qty: 0 },
-  { id: 8, product: "Men's/Womens Jacket", location: "Front Left Chest", decoCogs: 7.63, apparelCost: 22.35, qty: 5 },
-  { id: 9, product: "Womens Leggings", location: "Front Hip", decoCogs: 2.80, apparelCost: 18.23, qty: 1 },
-  { id: 10, product: "Youth Joggers", location: "Front Hip", decoCogs: 2.80, apparelCost: 10.79, qty: 2 },
-  { id: 11, product: "Mesh Cap", location: "Front", decoCogs: 4.76, apparelCost: 9.23, qty: 0 },
-  { id: 12, product: "Beanie", location: "Front", decoCogs: 4.76, apparelCost: 15.21, qty: 0 },
-  { id: 13, product: "Visor", location: "Front", decoCogs: 4.76, apparelCost: 5.02, qty: 1 },
-  { id: 14, product: "Headband", location: "Front", decoCogs: 4.76, apparelCost: 2.49, qty: 2 },
+  { id: 1, product: "Womens Fitted Tee", location: "Front", decoType: "custom", decoParam: null, decoCogs: 5.38, apparelCost: 3.39, qty: 5 },
+  { id: 2, product: "Youth Crewneck Sweatshirt", location: "Front", decoType: "custom", decoParam: null, decoCogs: 5.38, apparelCost: 6.92, qty: 0 },
+  { id: 3, product: "Youth Hooded Sweatshirt", location: "Front", decoType: "custom", decoParam: null, decoCogs: 5.38, apparelCost: 11.10, qty: 4 },
+  { id: 4, product: "Womens Tank Top", location: "Front", decoType: "custom", decoParam: null, decoCogs: 5.38, apparelCost: 3.61, qty: 1 },
+  { id: 5, product: "Carhartt Hoodie", location: "Front", decoType: "custom", decoParam: null, decoCogs: 5.38, apparelCost: 45.64, qty: 4 },
+  { id: 6, product: "Women's Fleece Jacket", location: "Back", decoType: "custom", decoParam: null, decoCogs: 5.38, apparelCost: 24.83, qty: 0 },
+  { id: 7, product: "Carhartt Mock Zip Hoodie", location: "Back", decoType: "custom", decoParam: null, decoCogs: 5.38, apparelCost: 49.44, qty: 0 },
+  { id: 8, product: "Men's/Womens Jacket", location: "Front Left Chest", decoType: "custom", decoParam: null, decoCogs: 7.63, apparelCost: 22.35, qty: 5 },
+  { id: 9, product: "Womens Leggings", location: "Front Hip", decoType: "custom", decoParam: null, decoCogs: 2.80, apparelCost: 18.23, qty: 1 },
+  { id: 10, product: "Youth Joggers", location: "Front Hip", decoType: "custom", decoParam: null, decoCogs: 2.80, apparelCost: 10.79, qty: 2 },
+  { id: 11, product: "Mesh Cap", location: "Front", decoType: "custom", decoParam: null, decoCogs: 4.76, apparelCost: 9.23, qty: 0 },
+  { id: 12, product: "Beanie", location: "Front", decoType: "custom", decoParam: null, decoCogs: 4.76, apparelCost: 15.21, qty: 0 },
+  { id: 13, product: "Visor", location: "Front", decoType: "custom", decoParam: null, decoCogs: 4.76, apparelCost: 5.02, qty: 1 },
+  { id: 14, product: "Headband", location: "Front", decoType: "custom", decoParam: null, decoCogs: 4.76, apparelCost: 2.49, qty: 2 },
 ];
 
 const LOCATIONS = ["Front", "Back", "Front Left Chest", "Front Hip", "Sleeve", "Full Front", "Full Back"];
@@ -156,7 +157,7 @@ export default function WebstoreCalculator() {
   }, []);
 
   const addItem = useCallback(() => {
-    setItems((prev) => [...prev, { id: ++nextId.current, product: "", location: "Front", decoCogs: 0, apparelCost: 0, qty: 0 }]);
+    setItems((prev) => [...prev, { id: ++nextId.current, product: "", location: "Front", decoType: "sp", decoParam: 2, decoCogs: 0, apparelCost: 0, qty: 0 }]);
   }, []);
 
   const removeItem = useCallback((id) => {
@@ -168,14 +169,38 @@ export default function WebstoreCalculator() {
       const source = prev.find((item) => item.id === id);
       if (!source) return prev;
       const idx = prev.findIndex((item) => item.id === id);
-      const newItem = { ...source, id: ++nextId.current, qty: 0 };
+      const newItem = { ...source, id: ++nextId.current, qty: 0, decoType: source.decoType || "custom", decoParam: source.decoParam ?? null };
       const next = [...prev];
       next.splice(idx + 1, 0, newItem);
       return next;
     });
   }, []);
 
-  const calculated = useMemo(() => items.map((item) => ({ item, calc: calcItem(item, settings) })), [items, settings]);
+  const updateDecoType = useCallback((id, newType) => {
+    setItems((prev) => prev.map((item) => item.id === id ? { ...item, decoType: newType, decoParam: getDefaultDecoParam(newType) } : item));
+  }, []);
+
+  const updateDecoParam = useCallback((id, newParam) => {
+    setItems((prev) => prev.map((item) => item.id === id ? { ...item, decoParam: newParam } : item));
+  }, []);
+
+  // Bulk deco setter state
+  const [bulkDecoType, setBulkDecoType] = useState("sp");
+  const [bulkDecoParam, setBulkDecoParam] = useState(2);
+
+  const applyBulkDeco = useCallback(() => {
+    setItems((prev) => prev.map((item) => ({ ...item, decoType: bulkDecoType, decoParam: bulkDecoParam })));
+  }, [bulkDecoType, bulkDecoParam]);
+
+  const calculated = useMemo(() => {
+    const totalQty = items.reduce((s, i) => s + i.qty, 0);
+    return items.map((item) => {
+      const effectiveCogs = item.decoType === "custom" || !item.decoType
+        ? item.decoCogs
+        : estimateDecoCogs(item.decoType, item.decoParam, item.qty, totalQty) ?? item.decoCogs;
+      return { item, calc: calcItem({ ...item, decoCogs: effectiveCogs }, settings), effectiveCogs };
+    });
+  }, [items, settings]);
 
   const totals = useMemo(() => {
     const t = { qty: 0, revenue: 0, fundPayout: 0, clientFeeTotal: 0, apparelTotal: 0, decoCogTotal: 0, decoProfitTotal: 0, apparelMarkupTotal: 0, jiGross: 0, rawApparelCost: 0 };
@@ -253,9 +278,9 @@ export default function WebstoreCalculator() {
       ]);
       rows.push(["", "", "", totals.qty, totals.revenue.toFixed(2)]);
     } else {
-      headers = ["Product", "Location", "Deco COGS", "Deco Price", "Apparel $", "Retail", "Fund $/u", "Client $/u", "JI $/u", "Qty", "Revenue", "JI Profit"];
-      rows = calculated.map(({ item, calc }) => [
-        item.product, item.location, item.decoCogs.toFixed(2), calc.decoPrice.toFixed(2),
+      headers = ["Product", "Location", "Deco Type", "Deco COGS", "Deco Price", "Apparel $", "Retail", "Fund $/u", "Client $/u", "JI $/u", "Qty", "Revenue", "JI Profit"];
+      rows = calculated.map(({ item, calc, effectiveCogs }) => [
+        item.product, item.location, (item.decoType || "custom").toUpperCase(), (effectiveCogs ?? item.decoCogs).toFixed(2), calc.decoPrice.toFixed(2),
         item.apparelCost.toFixed(2), calc.roundedRetail.toFixed(2), calc.fundAmt.toFixed(2),
         calc.clientFeeAmt.toFixed(2), calc.jiTotalPerUnit.toFixed(2), item.qty,
         calc.revenue.toFixed(2), calc.jiGross.toFixed(2),
@@ -338,6 +363,35 @@ export default function WebstoreCalculator() {
           <input type="checkbox" checked={showBreakdown} onChange={(e) => setShowBreakdown(e.target.checked)} className="rf-check" />
           Full Breakdown
         </label>
+        {!isClient && (
+          <div className="flex items-center gap-1.5" style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 8, padding: "3px 8px", background: "var(--bg-deep)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+            <span style={{ fontWeight: 500 }}>Set all:</span>
+            <select
+              value={bulkDecoType}
+              onChange={(e) => { setBulkDecoType(e.target.value); setBulkDecoParam(getDefaultDecoParam(e.target.value)); }}
+              className="rf-select"
+              style={{ padding: "1px 2px", fontSize: 11 }}
+            >
+              {DECO_TYPES.filter((dt) => dt.key !== "custom").map((dt) => (
+                <option key={dt.key} value={dt.key}>{dt.label}</option>
+              ))}
+            </select>
+            <select
+              value={bulkDecoParam ?? ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setBulkDecoParam(bulkDecoType === "emb" || bulkDecoType === "sp" ? Number(v) : v);
+              }}
+              className="rf-select"
+              style={{ padding: "1px 2px", fontSize: 11 }}
+            >
+              {getDecoParamOptions(bulkDecoType).map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <button onClick={applyBulkDeco} className="btn-primary" style={{ padding: "2px 8px", fontSize: 11 }}>Apply</button>
+          </div>
+        )}
         <div className="flex-1" />
         {/* View mode toggle */}
         <div className="flex" style={{ background: "var(--bg-deep)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", padding: 2 }}>
@@ -537,7 +591,7 @@ export default function WebstoreCalculator() {
                 <th style={{ textAlign: "left", width: 100 }}>Location</th>
                 {!isClient && (
                   <>
-                    <th style={{ textAlign: "right", width: 72 }}>
+                    <th style={{ textAlign: "center", width: 150 }}>
                       <div>Deco</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>COGS</div>
                     </th>
                     <th style={{ textAlign: "right", width: 72 }}>
@@ -577,7 +631,7 @@ export default function WebstoreCalculator() {
               </tr>
             </thead>
             <tbody>
-              {calculated.map(({ item, calc }) => {
+              {calculated.map(({ item, calc, effectiveCogs }) => {
                 if (isClient && item.qty === 0) return null;
                 return (
                   <tr key={item.id} className={rowHealthClass(calc.marginPct, item.qty)} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
@@ -624,16 +678,65 @@ export default function WebstoreCalculator() {
                     </td>
                     {!isClient && (
                       <>
-                        <td style={{ padding: "4px 6px" }}>
-                          <input
-                            type="number"
-                            value={item.decoCogs}
-                            onChange={(e) => updateItem(item.id, "decoCogs", parseFloat(e.target.value) || 0)}
-                            step={0.01}
-                            min={0}
-                            className="field-editable-blue"
-                            style={{ width: "100%", padding: "3px 4px", textAlign: "right", fontSize: 13, fontWeight: 600 }}
-                          />
+                        <td style={{ padding: "4px 4px", minWidth: 150 }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                            <div style={{ display: "flex", gap: 2 }}>
+                              <select
+                                value={item.decoType || "custom"}
+                                onChange={(e) => updateDecoType(item.id, e.target.value)}
+                                className="rf-select"
+                                style={{ padding: "1px 2px", fontSize: 11, flex: "0 0 auto", width: 48 }}
+                              >
+                                {DECO_TYPES.map((dt) => (
+                                  <option key={dt.key} value={dt.key}>{dt.label}</option>
+                                ))}
+                              </select>
+                              {item.decoType && item.decoType !== "custom" && (
+                                <select
+                                  value={item.decoParam ?? ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    updateDecoParam(item.id, item.decoType === "emb" ? Number(v) : item.decoType === "sp" ? Number(v) : v);
+                                  }}
+                                  className="rf-select"
+                                  style={{ padding: "1px 2px", fontSize: 11, flex: 1, minWidth: 0 }}
+                                >
+                                  {getDecoParamOptions(item.decoType || "custom").map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                              {(item.decoType === "custom" || !item.decoType) ? (
+                                <input
+                                  type="number"
+                                  value={item.decoCogs}
+                                  onChange={(e) => updateItem(item.id, "decoCogs", parseFloat(e.target.value) || 0)}
+                                  step={0.01}
+                                  min={0}
+                                  className="field-editable-blue"
+                                  style={{ width: "100%", padding: "2px 4px", textAlign: "right", fontSize: 12, fontWeight: 600 }}
+                                />
+                              ) : (
+                                <>
+                                  <span className="tnum" style={{ flex: 1, textAlign: "right", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", padding: "2px 4px" }}>
+                                    {fmt(effectiveCogs)}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, decoType: "custom", decoParam: null, decoCogs: effectiveCogs } : it));
+                                    }}
+                                    className="btn-ghost"
+                                    style={{ width: 16, height: 16, fontSize: 10, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 2, color: "var(--text-muted)", flexShrink: 0 }}
+                                    title="Switch to manual override"
+                                  >
+                                    &#9998;
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
                         </td>
                         <td className="field-readonly" style={{ padding: "4px 6px", textAlign: "right", fontSize: 13 }}>
                           {fmt(calc.decoPrice)}
