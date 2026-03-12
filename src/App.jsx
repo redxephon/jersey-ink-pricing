@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ScreenPrintCalculator from "./ScreenPrintCalculator";
 import EmbroideryCalculator from "./EmbroideryCalculator";
 import DTFCalculator from "./DTFCalculator";
@@ -15,6 +15,17 @@ const MODES = [
 
 export default function App() {
   const [mode, setMode] = useState("screenprint");
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("ji-theme") || "dark";
+    }
+    return "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("ji-theme", theme);
+  }, [theme]);
 
   // Shop Economics state — shared across all calculators
   const [costItems, setCostItems] = useState([
@@ -78,31 +89,51 @@ export default function App() {
           </div>
 
           {/* Mode segmented control — scrollable on mobile */}
-          <div className="tab-bar-scroll" style={{ background: "var(--bg-deep)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", padding: 2 }}>
-            {MODES.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => setMode(m.id)}
-                className={mode === m.id ? "btn-active" : ""}
-                style={{
-                  padding: "5px 16px",
-                  borderRadius: "var(--radius-sm)",
-                  fontSize: 12,
-                  fontWeight: mode === m.id ? 600 : 400,
-                  fontFamily: "'DM Sans', sans-serif",
-                  background: mode === m.id ? "var(--bg-surface)" : "transparent",
-                  color: mode === m.id ? "var(--ji-green)" : "var(--text-muted)",
-                  border: mode === m.id ? "1px solid var(--border-medium)" : "1px solid transparent",
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                }}
-              >
-                <span className="tab-label-full">{m.label}</span>
-                <span className="tab-label-short">{m.shortLabel}</span>
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            <div className="tab-bar-scroll" style={{ background: "var(--bg-deep)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", padding: 2 }}>
+              {MODES.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => setMode(m.id)}
+                  className={mode === m.id ? "btn-active" : ""}
+                  style={{
+                    padding: "5px 16px",
+                    borderRadius: "var(--radius-sm)",
+                    fontSize: 12,
+                    fontWeight: mode === m.id ? 600 : 400,
+                    fontFamily: "'DM Sans', sans-serif",
+                    background: mode === m.id ? "var(--bg-surface)" : "transparent",
+                    color: mode === m.id ? "var(--ji-green)" : "var(--text-muted)",
+                    border: mode === m.id ? "1px solid var(--border-medium)" : "1px solid transparent",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span className="tab-label-full">{m.label}</span>
+                  <span className="tab-label-short">{m.shortLabel}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Theme toggle */}
+            <button
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              style={{
+                width: 32, height: 32, borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border-subtle)",
+                background: "var(--bg-deep)",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 16, transition: "all 0.15s ease",
+                flexShrink: 0,
+              }}
+            >
+              {theme === "dark" ? "\u2600" : "\u263E"}
+            </button>
           </div>
         </div>
       </header>
