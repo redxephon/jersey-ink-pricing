@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
   EMB_STITCH_TIERS, EMB_QTY_TIERS, DEFAULT_EMB_PRICES,
-  EMB_OVERFLOW_RATE, EMB_SIZING, lookupEmbPrice,
+  EMB_OVERFLOW_RATE, EMB_FEES, EMB_SIZING, lookupEmbPrice,
 } from "./embroideryData";
 import { calcEmbroideryTime, calcJobScore, calcShopRates } from "./jobAnalysis";
 import ProfitAlerts from "./ProfitAlerts";
@@ -14,7 +14,7 @@ export default function EmbroideryCalculator({ shopEconomics }) {
   const [qty, setQty] = useState(48);
   const [embPrices, setEmbPrices] = useState(() => DEFAULT_EMB_PRICES.map((r) => [...r]));
   const [overflowRate, setOverflowRate] = useState(EMB_OVERFLOW_RATE);
-  const [digitizingFee, setDigitizingFee] = useState(35);
+  const [digitizingFee, setDigitizingFee] = useState(EMB_FEES.digitizingSmall.amount);
   const [garmentCost, setGarmentCost] = useState(0);
   const [garmentMarkup, setGarmentMarkup] = useState(0);
   // Fee toggles
@@ -25,7 +25,13 @@ export default function EmbroideryCalculator({ shopEconomics }) {
   const [includeMetallic, setIncludeMetallic] = useState(false);
   const [includeFoldBag, setIncludeFoldBag] = useState(false);
   const [includeUnbag, setIncludeUnbag] = useState(false);
-  const [foldBagType, setFoldBagType] = useState("tshirt"); // tshirt or hoodie
+  const [foldBagType, setFoldBagType] = useState("tshirt");
+  // New features
+  const [threadColors, setThreadColors] = useState(1);
+  const [numHeads, setNumHeads] = useState(1);
+  const [numLocations, setNumLocations] = useState(1);
+  const [rushFee, setRushFee] = useState(0); // 0, 25, or 50 percent
+  const [isRepeatOrder, setIsRepeatOrder] = useState(false);
   const [activeTab, setActiveTab] = useState("card");
   const [targetHourlyRate, setTargetHourlyRate] = useState(75);
 
@@ -34,29 +40,32 @@ export default function EmbroideryCalculator({ shopEconomics }) {
 
   const perUnitFees = useMemo(() => {
     let fees = 0;
-    if (includeCaps) fees += 1.50;
-    if (includeFleece) fees += 1.75;
-    if (include3DPuff) fees += 1.75;
-    if (includeCustomName) fees += 9.90;
-    if (includeMetallic) fees += 0.75;
-    if (includeFoldBag) fees += foldBagType === "hoodie" ? 0.90 : 0.60;
-    if (includeUnbag) fees += 0.50;
+    if (includeCaps) fees += EMB_FEES.caps.amount;
+    if (includeFleece) fees += EMB_FEES.fleece.amount;
+    if (include3DPuff) fees += EMB_FEES.puff3d.amount;
+    if (includeCustomName) fees += EMB_FEES.customName.amount;
+    if (includeMetallic) fees += EMB_FEES.metallic.amount;
+    if (includeFoldBag) fees += foldBagType === "hoodie" ? EMB_FEES.foldBagHoodie.amount : EMB_FEES.foldBagTshirt.amount;
+    if (includeUnbag) fees += EMB_FEES.unbag.amount;
     return fees;
   }, [includeCaps, includeFleece, include3DPuff, includeCustomName, includeMetallic, includeFoldBag, includeUnbag, foldBagType]);
 
   const garmentSell = garmentCost * (1 + garmentMarkup / 100);
+  const effectiveDigitizing = isRepeatOrder ? 0 : digitizingFee;
 
   const embPrice = useMemo(() => {
-    return lookupEmbPrice(stitchCount, qty, embPrices, EMB_STITCH_TIERS, EMB_QTY_TIERS, overflowRate);
-  }, [stitchCount, qty, embPrices, overflowRate]);
+    const basePrice = lookupEmbPrice(stitchCount, qty, embPrices, EMB_STITCH_TIERS, EMB_QTY_TIERS, overflowRate);
+    return basePrice * numLocations;
+  }, [stitchCount, qty, embPrices, overflowRate, numLocations]);
 
-  const allInPerUnit = embPrice + perUnitFees + garmentSell;
-  const costPerUnit = embPrice * 0.45 + perUnitFees + garmentCost; // ~45% COGS estimate for embroidery
+  const rushMultiplier = 1 + rushFee / 100;
+  const allInPerUnit = (embPrice + perUnitFees) * rushMultiplier + garmentSell;
+  const costPerUnit = embPrice * 0.45 + perUnitFees + garmentCost;
   const profitPerUnit = allInPerUnit - costPerUnit;
   const marginPct = allInPerUnit > 0 ? (profitPerUnit / allInPerUnit) * 100 : 0;
-  const orderTotal = allInPerUnit * qty + digitizingFee;
+  const orderTotal = allInPerUnit * qty + effectiveDigitizing * numLocations;
 
-  const pressTime = useMemo(() => calcEmbroideryTime(stitchCount, qty), [stitchCount, qty]);
+  const pressTime = useMemo(() => calcEmbroideryTime(stitchCount * numLocations, qty, threadColors, numHeads), [stitchCount, qty, threadColors, numHeads, numLocations]);
   const totalProfit = profitPerUnit * qty;
   const dollarsPerHour = pressTime.totalHours > 0 ? totalProfit / pressTime.totalHours : 0;
 
@@ -66,7 +75,6 @@ export default function EmbroideryCalculator({ shopEconomics }) {
 
   const shopRates = useMemo(() => calcShopRates(shopEconomics), [shopEconomics]);
 
-  // Active highlighting for rate card
   const activeQtyCol = useMemo(() => {
     for (let i = EMB_QTY_TIERS.length - 1; i >= 0; i--) {
       if (qty >= EMB_QTY_TIERS[i].min) return i;
@@ -87,18 +95,19 @@ export default function EmbroideryCalculator({ shopEconomics }) {
     });
   };
 
-  // Min profitable qty search
   const minProfitableQty = useMemo(() => {
     for (let q = 1; q <= 1000; q++) {
-      const price = lookupEmbPrice(stitchCount, q, embPrices, EMB_STITCH_TIERS, EMB_QTY_TIERS, overflowRate);
-      const allIn = price + perUnitFees + garmentSell;
+      const price = lookupEmbPrice(stitchCount, q, embPrices, EMB_STITCH_TIERS, EMB_QTY_TIERS, overflowRate) * numLocations;
+      const allIn = (price + perUnitFees) * rushMultiplier + garmentSell;
       const cost = price * 0.45 + perUnitFees + garmentCost;
       const profit = (allIn - cost) * q;
-      const time = calcEmbroideryTime(stitchCount, q);
+      const time = calcEmbroideryTime(stitchCount * numLocations, q, threadColors, numHeads);
       if (time.totalHours > 0 && profit / time.totalHours >= targetHourlyRate) return q;
     }
     return null;
-  }, [stitchCount, embPrices, overflowRate, perUnitFees, garmentSell, garmentCost, targetHourlyRate]);
+  }, [stitchCount, embPrices, overflowRate, perUnitFees, garmentSell, garmentCost, targetHourlyRate, numLocations, threadColors, numHeads, rushMultiplier]);
+
+  const isSmallOrder = qty < 6;
 
   return (
     <>
@@ -150,6 +159,41 @@ export default function EmbroideryCalculator({ shopEconomics }) {
 
           <div style={{ width: 1, height: 32, background: "var(--border-subtle)", alignSelf: "flex-end" }} />
 
+          {/* Thread Colors */}
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Thread Colors</label>
+            <input
+              type="number" min={1} max={15} value={threadColors}
+              onChange={(e) => setThreadColors(Math.max(1, Math.min(15, Number(e.target.value))))}
+              className="field-editable"
+              style={{ width: 60, padding: "7px 10px", textAlign: "center", fontSize: 14, fontWeight: 600 }}
+            />
+          </div>
+
+          {/* Machine Heads */}
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Heads</label>
+            <input
+              type="number" min={1} max={12} value={numHeads}
+              onChange={(e) => setNumHeads(Math.max(1, Math.min(12, Number(e.target.value))))}
+              className="field-editable"
+              style={{ width: 60, padding: "7px 10px", textAlign: "center", fontSize: 14, fontWeight: 600 }}
+            />
+          </div>
+
+          {/* Locations */}
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Locations</label>
+            <input
+              type="number" min={1} max={5} value={numLocations}
+              onChange={(e) => setNumLocations(Math.max(1, Math.min(5, Number(e.target.value))))}
+              className="field-editable"
+              style={{ width: 60, padding: "7px 10px", textAlign: "center", fontSize: 14, fontWeight: 600 }}
+            />
+          </div>
+
+          <div style={{ width: 1, height: 32, background: "var(--border-subtle)", alignSelf: "flex-end" }} />
+
           {/* Digitizing */}
           <div>
             <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Digitizing Fee</label>
@@ -159,21 +203,25 @@ export default function EmbroideryCalculator({ shopEconomics }) {
                 type="number" min={0} step={5} value={digitizingFee}
                 onChange={(e) => setDigitizingFee(Math.max(0, Number(e.target.value)))}
                 className="field-editable"
-                style={{ width: 80, padding: "7px 10px 7px 20px", textAlign: "center", fontSize: 13, fontWeight: 600 }}
+                style={{
+                  width: 80, padding: "7px 10px 7px 20px", textAlign: "center", fontSize: 13, fontWeight: 600,
+                  opacity: isRepeatOrder ? 0.4 : 1,
+                }}
+                disabled={isRepeatOrder}
               />
             </div>
           </div>
         </div>
 
-        {/* Fee Toggles */}
+        {/* Fee Toggles + Rush + Repeat */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2" style={{ fontSize: 12, color: "var(--text-muted)" }}>
           {[
-            { label: "Caps (+$1.50)", checked: includeCaps, set: setIncludeCaps },
-            { label: "Fleece (+$1.75)", checked: includeFleece, set: setIncludeFleece },
-            { label: "3D Puff (+$1.75)", checked: include3DPuff, set: setInclude3DPuff },
-            { label: "Custom Name (+$9.90)", checked: includeCustomName, set: setIncludeCustomName },
-            { label: "Metallic (+$0.75)", checked: includeMetallic, set: setIncludeMetallic },
-            { label: "Unbag (+$0.50)", checked: includeUnbag, set: setIncludeUnbag },
+            { label: `Caps (+${fmt(EMB_FEES.caps.amount)})`, checked: includeCaps, set: setIncludeCaps },
+            { label: `Fleece (+${fmt(EMB_FEES.fleece.amount)})`, checked: includeFleece, set: setIncludeFleece },
+            { label: `3D Puff (+${fmt(EMB_FEES.puff3d.amount)})`, checked: include3DPuff, set: setInclude3DPuff },
+            { label: `Custom Name (+${fmt(EMB_FEES.customName.amount)})`, checked: includeCustomName, set: setIncludeCustomName },
+            { label: `Metallic (+${fmt(EMB_FEES.metallic.amount)})`, checked: includeMetallic, set: setIncludeMetallic },
+            { label: `Unbag (+${fmt(EMB_FEES.unbag.amount)})`, checked: includeUnbag, set: setIncludeUnbag },
           ].map(({ label, checked, set }) => (
             <label key={label} className="flex items-center gap-1.5 cursor-pointer select-none">
               <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)} className="rf-check" />
@@ -187,10 +235,40 @@ export default function EmbroideryCalculator({ shopEconomics }) {
           </label>
           {includeFoldBag && (
             <select className="rf-select" value={foldBagType} onChange={(e) => setFoldBagType(e.target.value)} style={{ padding: "2px 6px", fontSize: 11 }}>
-              <option value="tshirt">T-shirt ($0.60)</option>
-              <option value="hoodie">Hoodie ($0.90)</option>
+              <option value="tshirt">T-shirt ({fmt(EMB_FEES.foldBagTshirt.amount)})</option>
+              <option value="hoodie">Hoodie ({fmt(EMB_FEES.foldBagHoodie.amount)})</option>
             </select>
           )}
+        </div>
+
+        {/* Rush + Repeat row */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2" style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>Rush:</span>
+          {[
+            { label: "None", value: 0 },
+            { label: "+25%", value: 25 },
+            { label: "+50%", value: 50 },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setRushFee(opt.value)}
+              style={{
+                padding: "3px 10px", borderRadius: "var(--radius-sm)", fontSize: 11, cursor: "pointer",
+                border: rushFee === opt.value ? "1px solid var(--fund-amber)" : "1px solid var(--border-subtle)",
+                background: rushFee === opt.value ? "rgba(251, 191, 36, 0.1)" : "transparent",
+                color: rushFee === opt.value ? "var(--fund-amber)" : "var(--text-muted)",
+                fontWeight: rushFee === opt.value ? 600 : 400,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+          <span style={{ color: "var(--border-medium)" }}>|</span>
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" checked={isRepeatOrder} onChange={(e) => setIsRepeatOrder(e.target.checked)} className="rf-check" />
+            <span style={{ fontWeight: 500 }}>Repeat Order</span>
+            {isRepeatOrder && <span style={{ color: "var(--ji-green)" }}>(no digitizing)</span>}
+          </label>
         </div>
 
         {/* Garment Cost */}
@@ -222,6 +300,14 @@ export default function EmbroideryCalculator({ shopEconomics }) {
           )}
         </div>
 
+        {/* Small Order Warning */}
+        {isSmallOrder && (
+          <div className="alert-warn mt-3 p-2 flex items-center gap-2" style={{ fontSize: 12 }}>
+            <span style={{ fontWeight: 700 }}>Small Order</span>
+            <span>Orders under 6 units have significantly higher per-unit costs. Consider raising the price or adding a small order surcharge.</span>
+          </div>
+        )}
+
         {/* Results */}
         <div className="results-grid mt-4">
           {/* Job Score */}
@@ -244,18 +330,21 @@ export default function EmbroideryCalculator({ shopEconomics }) {
             <div className="kpi-label mb-1">Per Unit (all-in)</div>
             <div className="kpi-value" style={{ color: "var(--ji-green)" }}>{fmt(allInPerUnit)}</div>
             <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-              {fmt(embPrice)} emb
+              {fmt(embPrice)} emb{numLocations > 1 && ` (${numLocations}loc)`}
               {perUnitFees > 0 && <> + {fmt(perUnitFees)} fees</>}
               {garmentSell > 0 && <> + {fmt(garmentSell)} garment</>}
+              {rushFee > 0 && <> + {rushFee}% rush</>}
             </div>
           </div>
 
           <div className="text-right">
             <div className="kpi-label">Digitizing</div>
-            <div className="tnum" style={{ fontSize: 22, fontWeight: 600, color: "var(--text-primary)" }}>
-              {fmt(digitizingFee)}
+            <div className="tnum" style={{ fontSize: 22, fontWeight: 600, color: isRepeatOrder ? "var(--text-muted)" : "var(--text-primary)" }}>
+              {isRepeatOrder ? "$0.00" : fmt(effectiveDigitizing * numLocations)}
             </div>
-            <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>one-time</div>
+            <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+              {isRepeatOrder ? "repeat order" : `one-time${numLocations > 1 ? ` ×${numLocations}` : ""}`}
+            </div>
           </div>
 
           <div className="text-right">
@@ -292,6 +381,7 @@ export default function EmbroideryCalculator({ shopEconomics }) {
             </div>
             <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
               ~{pressTime.totalHours.toFixed(1)}hrs
+              {numHeads > 1 && <> ({numHeads}h)</>}
             </div>
           </div>
         </div>

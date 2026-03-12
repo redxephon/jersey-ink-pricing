@@ -64,29 +64,29 @@ export const DEFAULT_EMB_PRICES = [
   [23.00, 16.25, 11.50, 10.35, 9.40, 8.50, 7.55, 6.65, 5.95, 5.40],
   // 14-15K
   [24.00, 17.00, 12.00, 10.80, 9.80, 8.90, 7.90, 6.95, 6.25, 5.65],
-  // 15-16K
-  [25.00, 17.75, 12.50, 11.25, 10.20, 9.25, 8.25, 7.25, 6.50, 5.90],
+  // 15-16K — qty-1 raised ~15% vs original
+  [29.00, 17.75, 12.50, 11.25, 10.20, 9.25, 8.25, 7.25, 6.50, 5.90],
   // 16-17K
-  [26.00, 18.50, 13.00, 11.70, 10.60, 9.65, 8.55, 7.55, 6.80, 6.15],
+  [30.00, 18.50, 13.00, 11.70, 10.60, 9.65, 8.55, 7.55, 6.80, 6.15],
   // 17-18K
-  [27.00, 19.25, 13.50, 12.15, 11.00, 10.00, 8.90, 7.85, 7.05, 6.40],
+  [32.00, 19.25, 13.50, 12.15, 11.00, 10.00, 8.90, 7.85, 7.05, 6.40],
   // 18-19K
-  [28.00, 20.00, 14.00, 12.60, 11.40, 10.40, 9.25, 8.15, 7.35, 6.65],
+  [33.00, 20.00, 14.00, 12.60, 11.40, 10.40, 9.25, 8.15, 7.35, 6.65],
   // 19-20K
-  [29.00, 20.75, 14.50, 13.05, 11.85, 10.75, 9.55, 8.45, 7.60, 6.90],
+  [35.00, 20.75, 14.50, 13.05, 11.85, 10.75, 9.55, 8.45, 7.60, 6.90],
 ];
 
 export const EMB_OVERFLOW_RATE = 0.60; // per additional 1,000 stitches above 20K
 
 // Additional fees
 export const EMB_FEES = {
-  digitizingSmall: { label: "Digitizing <6\" wide", amount: 35, type: "one-time" },
-  digitizingLarge: { label: "Digitizing >6\" wide", amount: 55, type: "one-time" },
+  digitizingSmall: { label: "Digitizing <6\" wide", amount: 45, type: "one-time" },
+  digitizingLarge: { label: "Digitizing >6\" wide", amount: 75, type: "one-time" },
   caps: { label: "Headwear/Caps", amount: 1.50, type: "per-unit" },
   fleece: { label: "Fleece/Knitted/Pillows", amount: 1.75, type: "per-unit" },
-  puff3d: { label: "3D Puff", amount: 1.75, type: "per-unit" },
+  puff3d: { label: "3D Puff", amount: 2.25, type: "per-unit" },
   customName: { label: "Custom Name (up to 2 lines)", amount: 9.90, type: "per-unit" },
-  metallic: { label: "Metallic Thread", amount: 0.75, type: "per-unit" },
+  metallic: { label: "Metallic Thread", amount: 1.25, type: "per-unit" },
   foldBagTshirt: { label: "T-shirt Fold/Bag/Sticker", amount: 0.60, type: "per-unit" },
   foldBagHoodie: { label: "Hoodie Fold/Bag/Sticker", amount: 0.90, type: "per-unit" },
   unbag: { label: "Unbagging", amount: 0.50, type: "per-unit" },

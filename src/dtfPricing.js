@@ -13,6 +13,9 @@ export const DEFAULT_COST_PER_SQ_IN = 0.03;
 export const DEFAULT_DTF_MARKUP = 150;
 export const DEFAULT_PRESS_TIME_SEC = 15;
 export const DEFAULT_DTF_SETUP_MIN = 5;
+export const DEFAULT_SUPPLIER_SHIPPING = 0; // amortized per unit
+export const DEFAULT_SETUP_ART_FEE = 15; // one-time
+export const DEFAULT_WASTE_PCT = 3; // % waste factor
 
 export const DEFAULT_QTY_DISCOUNTS = [
   { minQty: 1, discountPct: 0 },
@@ -20,6 +23,7 @@ export const DEFAULT_QTY_DISCOUNTS = [
   { minQty: 48, discountPct: 10 },
   { minQty: 100, discountPct: 15 },
   { minQty: 250, discountPct: 20 },
+  { minQty: 500, discountPct: 25 },
 ];
 
 export const DTF_QTY_TIERS = [
@@ -27,7 +31,15 @@ export const DTF_QTY_TIERS = [
   { label: "12-47", min: 12, max: 47, rep: 24 },
   { label: "48-99", min: 48, max: 99, rep: 48 },
   { label: "100-249", min: 100, max: 249, rep: 100 },
-  { label: "250+", min: 250, max: Infinity, rep: 250 },
+  { label: "250-499", min: 250, max: 499, rep: 250 },
+  { label: "500+", min: 500, max: Infinity, rep: 500 },
+];
+
+export const MARKUP_PRESETS = [
+  { label: "Economy", pct: 100 },
+  { label: "Standard", pct: 150 },
+  { label: "Premium", pct: 200 },
+  { label: "Platform", pct: 250 },
 ];
 
 /**
@@ -44,20 +56,25 @@ export function getQtyDiscount(qty, discounts) {
 /**
  * Calculate DTF pricing for a job.
  */
-export function calcDTFPrice(transferCost, qty, markupPct, garmentCost, garmentMarkup, qtyDiscounts) {
+export function calcDTFPrice(transferCost, qty, markupPct, garmentCost, garmentMarkup, qtyDiscounts, opts = {}) {
+  const { shippingPerUnit = 0, rushPct = 0, setupArtFee = 0, wastePct = 0, numPlacements = 1 } = opts;
   const discountPct = getQtyDiscount(qty, qtyDiscounts);
   const discountedCost = transferCost * (1 - discountPct / 100);
-  const sellPerTransfer = discountedCost * (1 + markupPct / 100);
+  const costWithWaste = discountedCost * (1 + wastePct / 100);
+  const totalTransferCost = costWithWaste * numPlacements + shippingPerUnit;
+  const rushMultiplier = 1 + rushPct / 100;
+  const sellPerTransfer = totalTransferCost * (1 + markupPct / 100) * rushMultiplier;
   const garmentSell = garmentCost * (1 + garmentMarkup / 100);
   const sellPerUnit = sellPerTransfer + garmentSell;
-  const costPerUnit = discountedCost + garmentCost;
+  const costPerUnit = totalTransferCost + garmentCost;
   const profitPerUnit = sellPerUnit - costPerUnit;
   const marginPct = sellPerUnit > 0 ? (profitPerUnit / sellPerUnit) * 100 : 0;
-  const orderTotal = sellPerUnit * qty;
+  const orderTotal = sellPerUnit * qty + setupArtFee;
 
   return {
     discountPct,
     discountedCost,
+    totalTransferCost,
     sellPerTransfer,
     garmentSell,
     sellPerUnit,
@@ -65,14 +82,15 @@ export function calcDTFPrice(transferCost, qty, markupPct, garmentCost, garmentM
     profitPerUnit,
     marginPct,
     orderTotal,
+    setupArtFee,
   };
 }
 
 /**
  * Calculate DTF production time.
  */
-export function calcDTFTime(qty, pressTimeSec, setupMinutes) {
-  const pressMinutes = (pressTimeSec * qty) / 60;
+export function calcDTFTime(qty, pressTimeSec, setupMinutes, numPlacements = 1) {
+  const pressMinutes = (pressTimeSec * qty * numPlacements) / 60;
   const totalMinutes = setupMinutes + pressMinutes;
   return { setupMinutes, pressMinutes, totalMinutes, totalHours: totalMinutes / 60 };
 }
@@ -81,13 +99,15 @@ export function calcDTFTime(qty, pressTimeSec, setupMinutes) {
  * Build a rate card: rows = preset sizes, columns = qty tiers.
  * Returns sell price per unit for each combination.
  */
-export function buildDTFRateCard(supplierCosts, markupPct, qtyDiscounts) {
+export function buildDTFRateCard(supplierCosts, markupPct, qtyDiscounts, opts = {}) {
+  const { wastePct = 0, numPlacements = 1 } = opts;
   return DTF_SIZE_PRESETS.map((preset) => {
     const cost = supplierCosts[preset.key] ?? preset.cost;
     return DTF_QTY_TIERS.map((tier) => {
       const discountPct = getQtyDiscount(tier.rep, qtyDiscounts);
       const discountedCost = cost * (1 - discountPct / 100);
-      return discountedCost * (1 + markupPct / 100);
+      const costWithWaste = discountedCost * (1 + wastePct / 100);
+      return costWithWaste * numPlacements * (1 + markupPct / 100);
     });
   });
 }

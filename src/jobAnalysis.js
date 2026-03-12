@@ -91,17 +91,18 @@ export function findBreakEvenQty(params, locations, increase, perUnitAddOns, com
   return null;
 }
 
-export function calcEmbroideryTime(stitchCount, qty, threadColors = 1) {
-  const stitchesPerMin = 800;
+export function calcEmbroideryTime(stitchCount, qty, threadColors = 1, numHeads = 1) {
+  const stitchesPerMin = 700; // realistic commercial SPM (was 800)
   const sewTimePerUnit = stitchCount / stitchesPerMin; // minutes
-  const hoopTimePerUnit = 0.75; // minutes
+  const hoopTimePerUnit = 2.0; // realistic hoop/align time (was 0.75)
+  const hoopCycles = Math.ceil(qty / Math.max(1, numHeads));
   const setupMinutes = 10 + threadColors * 3;
-  const totalMinutes = setupMinutes + (sewTimePerUnit + hoopTimePerUnit) * qty;
+  const totalMinutes = setupMinutes + sewTimePerUnit * hoopCycles + hoopTimePerUnit * qty;
   return { setupMinutes, totalMinutes, totalHours: totalMinutes / 60 };
 }
 
-export function calcDTFTime(qty, pressTimeSec = 15, setupMinutes = 5) {
-  const pressMinutes = (pressTimeSec * qty) / 60;
+export function calcDTFTime(qty, pressTimeSec = 15, setupMinutes = 5, numPlacements = 1) {
+  const pressMinutes = (pressTimeSec * qty * numPlacements) / 60;
   const totalMinutes = setupMinutes + pressMinutes;
   return { setupMinutes, pressMinutes, totalMinutes, totalHours: totalMinutes / 60 };
 }
