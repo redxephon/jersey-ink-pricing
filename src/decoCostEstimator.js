@@ -10,6 +10,8 @@ import {
 } from "./embroideryData";
 import { DTF_SIZE_PRESETS } from "./dtfPricing";
 
+export const LOCATIONS = ["Front", "Back", "Front Left Chest", "Front Hip", "Sleeve", "Full Front", "Full Back"];
+
 export const DECO_TYPES = [
   { key: "custom", label: "--" },
   { key: "sp", label: "SP" },
@@ -122,13 +124,17 @@ export function locationToDtfPreset(location) {
  */
 export function decoSummaryLabel(decoType, decoParam, location) {
   const loc = location || "Front";
-  if (decoType === "sp") return `${loc} \u00b7 ${decoParam || 2} scr`;
+  if (decoType === "sp") return `${decoParam || 2} scr`;
   if (decoType === "emb") {
     const tier = EMB_STITCH_TIERS[decoParam ?? 5];
-    return `${loc} \u00b7 ${tier ? tier.label : "7-8K"}`;
+    return tier ? tier.label : "7-8K";
   }
-  if (decoType === "dtf") return loc;
-  return loc;
+  if (decoType === "dtf") {
+    const presetKey = locationToDtfPreset(loc);
+    const preset = DTF_SIZE_PRESETS.find((p) => p.key === presetKey);
+    return preset ? preset.label : "Standard";
+  }
+  return "Custom";
 }
 
 export const DECO_TYPE_COLORS = {
