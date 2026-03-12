@@ -210,6 +210,19 @@ export default function WebstoreCalculator() {
 
   // Popover state — which item's deco dropdown is open
   const [openDecoId, setOpenDecoId] = useState(null);
+  const popoverRef = useRef(null);
+
+  // Click-outside to dismiss popover
+  useEffect(() => {
+    if (!openDecoId) return;
+    const handler = (e) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setOpenDecoId(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [openDecoId]);
 
   const calculated = useMemo(() => {
     const totalQty = items.reduce((s, i) => s + i.qty, 0);
@@ -687,125 +700,155 @@ export default function WebstoreCalculator() {
                       {isClient ? (
                         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.location}</span>
                       ) : (
-                        <>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            {/* Chip button */}
-                            <button
-                              onClick={() => setOpenDecoId(openDecoId === item.id ? null : item.id)}
-                              style={{
-                                display: "flex", alignItems: "center", gap: 4,
-                                padding: "3px 6px", fontSize: 11, flex: 1, minWidth: 0,
-                                background: "var(--bg-deep)", border: "1px solid var(--border-subtle)",
-                                borderRadius: "var(--radius-sm)", cursor: "pointer",
-                                transition: "border-color 0.15s",
-                                borderColor: openDecoId === item.id ? "var(--border-medium)" : "var(--border-subtle)",
-                              }}
-                            >
-                              <span style={{
-                                fontSize: 9, fontWeight: 700, padding: "1px 4px",
-                                borderRadius: 2, color: "white", flexShrink: 0, letterSpacing: "0.03em",
-                                background: DECO_TYPE_COLORS[item.decoType] || DECO_TYPE_COLORS.custom,
-                              }}>
-                                {(DECO_TYPES.find((d) => d.key === item.decoType) || DECO_TYPES[0]).label}
-                              </span>
-                              <span style={{ fontSize: 11, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {decoSummaryLabel(item.decoType, item.decoParam, item.location)}
-                              </span>
-                              <span style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: "auto", flexShrink: 0 }}>{"\u25BC"}</span>
-                            </button>
-                            {/* COGS value */}
+                        <div ref={openDecoId === item.id ? popoverRef : undefined}>
+                          {/* Chip button */}
+                          <button
+                            className="deco-chip"
+                            data-open={openDecoId === item.id}
+                            onClick={() => setOpenDecoId(openDecoId === item.id ? null : item.id)}
+                            style={{ borderLeftColor: DECO_TYPE_COLORS[item.decoType] || DECO_TYPE_COLORS.custom, borderLeftWidth: 3 }}
+                          >
+                            <span className="deco-chip__badge" style={{ background: DECO_TYPE_COLORS[item.decoType] || DECO_TYPE_COLORS.custom }}>
+                              {(DECO_TYPES.find((d) => d.key === item.decoType) || DECO_TYPES[0]).label}
+                            </span>
+                            <span className="deco-chip__summary">
+                              {decoSummaryLabel(item.decoType, item.decoParam, item.location)}
+                            </span>
                             {(item.decoType === "custom" || !item.decoType) ? (
                               <input
                                 type="number"
                                 value={item.decoCogs}
-                                onChange={(e) => updateItem(item.id, "decoCogs", parseFloat(e.target.value) || 0)}
+                                onChange={(e) => { e.stopPropagation(); updateItem(item.id, "decoCogs", parseFloat(e.target.value) || 0); }}
+                                onClick={(e) => e.stopPropagation()}
                                 step={0.01}
                                 min={0}
                                 className="field-editable-blue"
-                                style={{ width: 58, padding: "2px 4px", textAlign: "right", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
+                                style={{ width: 54, padding: "1px 4px", textAlign: "right", fontSize: 11, fontWeight: 600, flexShrink: 0 }}
                               />
                             ) : (
                               <span
-                                className="tnum"
+                                className="deco-chip__cogs"
                                 title={cogsTooltip}
-                                style={{ width: 58, textAlign: "right", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", padding: "2px 4px", cursor: "help", flexShrink: 0, borderBottom: "1px dashed var(--border-medium)" }}
-                                onClick={() => {
-                                  setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, decoType: "custom", decoParam: null, decoCogs: effectiveCogs } : it));
-                                }}
+                                style={{ color: DECO_TYPE_COLORS[item.decoType] || "var(--text-primary)" }}
                               >
                                 {fmt(effectiveCogs)}
                               </span>
                             )}
-                          </div>
-                          {/* Popover dropdown */}
+                            <span className="deco-chip__arrow">{"\u25BE"}</span>
+                          </button>
+
+                          {/* Popover */}
                           {openDecoId === item.id && (
-                            <div style={{
-                              position: "absolute", top: "100%", left: 4, zIndex: 30,
-                              background: "var(--bg-surface)", border: "1px solid var(--border-medium)",
-                              borderRadius: "var(--radius-sm)", padding: "8px 10px",
-                              boxShadow: "0 4px 16px rgba(0,0,0,0.2)", minWidth: 200,
-                            }}>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
-                                  <span style={{ color: "var(--text-muted)", fontWeight: 500, width: 52 }}>Type</span>
-                                  <select
-                                    value={item.decoType || "custom"}
-                                    onChange={(e) => { updateDecoType(item.id, e.target.value); }}
-                                    className="rf-select"
-                                    style={{ padding: "3px 4px", fontSize: 12, flex: 1 }}
+                            <div className="deco-popover">
+                              {/* Type segmented control */}
+                              <div className="deco-type-seg">
+                                {DECO_TYPES.map((dt) => (
+                                  <button
+                                    key={dt.key}
+                                    className="deco-type-seg__btn"
+                                    data-active={item.decoType === dt.key}
+                                    style={item.decoType === dt.key ? { background: DECO_TYPE_COLORS[dt.key] } : undefined}
+                                    onClick={() => updateDecoType(item.id, dt.key)}
                                   >
-                                    {DECO_TYPES.map((dt) => (
-                                      <option key={dt.key} value={dt.key}>{dt.key === "custom" ? "Custom" : dt.label === "SP" ? "Screen Print" : dt.label === "EMB" ? "Embroidery" : "DTF Transfer"}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
-                                  <span style={{ color: "var(--text-muted)", fontWeight: 500, width: 52 }}>Location</span>
-                                  <select
-                                    value={item.location}
-                                    onChange={(e) => updateLocation(item.id, e.target.value)}
-                                    className="rf-select"
-                                    style={{ padding: "3px 4px", fontSize: 12, flex: 1 }}
-                                  >
-                                    {LOCATIONS.map((loc) => (
-                                      <option key={loc} value={loc}>{loc}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                {item.decoType && item.decoType !== "custom" && item.decoType !== "dtf" && (
-                                  <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
-                                    <span style={{ color: "var(--text-muted)", fontWeight: 500, width: 52 }}>{item.decoType === "sp" ? "Screens" : "Stitches"}</span>
-                                    <select
-                                      value={item.decoParam ?? ""}
-                                      onChange={(e) => {
-                                        const v = e.target.value;
-                                        updateDecoParam(item.id, item.decoType === "sp" || item.decoType === "emb" ? Number(v) : v);
-                                      }}
-                                      className="rf-select"
-                                      style={{ padding: "3px 4px", fontSize: 12, flex: 1 }}
-                                    >
-                                      {getDecoParamOptions(item.decoType).map((opt) => (
-                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                      ))}
-                                    </select>
-                                  </label>
-                                )}
-                                {item.decoType === "dtf" && (
-                                  <div style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic", padding: "2px 0" }}>
-                                    Size auto-mapped from location ({(getDecoParamOptions("dtf").find((o) => o.value === item.decoParam) || {}).label || "Standard"})
-                                  </div>
-                                )}
+                                    {dt.key === "custom" ? "--" : dt.label}
+                                  </button>
+                                ))}
                               </div>
-                              <button
-                                onClick={() => setOpenDecoId(null)}
-                                className="btn-primary"
-                                style={{ marginTop: 8, width: "100%", padding: "4px 0", fontSize: 11 }}
-                              >
-                                Done
-                              </button>
+
+                              <div className="deco-popover__divider" />
+
+                              {/* Location */}
+                              <div className="deco-popover__row">
+                                <span className="deco-popover__label">Loc</span>
+                                <select
+                                  value={item.location}
+                                  onChange={(e) => updateLocation(item.id, e.target.value)}
+                                  className="rf-select"
+                                  style={{ padding: "3px 6px", fontSize: 12, flex: 1 }}
+                                >
+                                  {LOCATIONS.map((loc) => (
+                                    <option key={loc} value={loc}>{loc}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Detail param (SP: Screens, EMB: Stitches) */}
+                              {item.decoType && item.decoType !== "custom" && item.decoType !== "dtf" && (
+                                <div className="deco-popover__row" style={{ marginTop: 6 }}>
+                                  <span className="deco-popover__label">{item.decoType === "sp" ? "Scrns" : "Stitch"}</span>
+                                  <select
+                                    value={item.decoParam ?? ""}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      updateDecoParam(item.id, item.decoType === "sp" || item.decoType === "emb" ? Number(v) : v);
+                                    }}
+                                    className="rf-select"
+                                    style={{ padding: "3px 6px", fontSize: 12, flex: 1 }}
+                                  >
+                                    {getDecoParamOptions(item.decoType).map((opt) => (
+                                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+
+                              {/* DTF auto-map note */}
+                              {item.decoType === "dtf" && (
+                                <div style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic", padding: "4px 0 0", display: "flex", alignItems: "center", gap: 4 }}>
+                                  <span style={{ opacity: 0.6 }}>&#x2192;</span> {(getDecoParamOptions("dtf").find((o) => o.value === item.decoParam) || {}).label || "Standard"} (auto)
+                                </div>
+                              )}
+
+                              {/* COGS preview */}
+                              {item.decoType && item.decoType !== "custom" && (
+                                <>
+                                  <div className="deco-popover__divider" />
+                                  <div className="deco-popover__cogs-preview">
+                                    <span className="deco-popover__cogs-label">Est. COGS</span>
+                                    <span className="deco-popover__cogs-value" style={{ color: DECO_TYPE_COLORS[item.decoType] }}>
+                                      {fmt(effectiveCogs)}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Custom COGS input */}
+                              {item.decoType === "custom" && (
+                                <>
+                                  <div className="deco-popover__divider" />
+                                  <div className="deco-popover__row">
+                                    <span className="deco-popover__label">COGS</span>
+                                    <input
+                                      type="number"
+                                      value={item.decoCogs}
+                                      onChange={(e) => updateItem(item.id, "decoCogs", parseFloat(e.target.value) || 0)}
+                                      step={0.01}
+                                      min={0}
+                                      className="field-editable-blue"
+                                      style={{ flex: 1, padding: "3px 6px", textAlign: "right", fontSize: 13, fontWeight: 600 }}
+                                      autoFocus
+                                    />
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Switch to custom link */}
+                              {item.decoType && item.decoType !== "custom" && (
+                                <button
+                                  onClick={() => setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, decoType: "custom", decoParam: null, decoCogs: effectiveCogs } : it))}
+                                  style={{
+                                    marginTop: 6, width: "100%", padding: "3px 0", fontSize: 10,
+                                    fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+                                    color: "var(--text-muted)", background: "none", border: "none",
+                                    cursor: "pointer", textAlign: "center",
+                                  }}
+                                >
+                                  Override with custom value
+                                </button>
+                              )}
                             </div>
                           )}
-                        </>
+                        </div>
                       )}
                     </td>
                     {!isClient && (
