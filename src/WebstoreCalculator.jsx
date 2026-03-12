@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 
 const DEFAULT_SETTINGS = {
   jiFeePct: 15,
@@ -50,7 +50,6 @@ function calcItem(item, s) {
   const apparelMarkup = item.apparelCost * mkupPct;
   const hardCosts = decoPrice + item.apparelCost + apparelMarkup;
 
-  // Iteratively solve for retail that satisfies all minimums
   const baseDenom = 1 - jiPct - clientPct - fundPct;
   let retail = baseDenom > 0 ? hardCosts / baseDenom : hardCosts * 10;
 
@@ -80,6 +79,7 @@ function calcItem(item, s) {
   const fundMinApplied = fundMin > roundedRetail * fundPct;
 
   const jiTotalPerUnit = jiFeeAmt + apparelMarkup + decoProfit;
+  const marginPct = roundedRetail > 0 ? (jiTotalPerUnit / roundedRetail) * 100 : 0;
 
   const revenue = roundedRetail * item.qty;
   const fundPayout = fundAmt * item.qty;
@@ -93,21 +93,15 @@ function calcItem(item, s) {
   return {
     decoPrice, decoProfit, apparelMarkup, hardCosts, roundedRetail,
     jiFeeAmt, jiMinApplied, clientFeeAmt, clientMinApplied, fundAmt, fundMinApplied,
-    jiTotalPerUnit, revenue, fundPayout, clientFeeTotal, apparelTotal,
+    jiTotalPerUnit, marginPct, revenue, fundPayout, clientFeeTotal, apparelTotal,
     decoCogTotal, decoProfitTotal, apparelMarkupTotal, jiGross,
   };
 }
 
-function SettingInput({ label, value, onChange, step, unit, color = "gray" }) {
-  const colors = {
-    emerald: "border-emerald-200 text-emerald-700 focus:ring-emerald-400",
-    blue: "border-blue-200 text-blue-700 focus:ring-blue-400",
-    amber: "border-amber-200 text-amber-700 focus:ring-amber-400",
-    gray: "border-gray-200 text-gray-700 focus:ring-gray-400",
-  };
+function SettingInput({ label, value, onChange, step, unit, accentColor }) {
   return (
     <div className="flex items-center justify-between">
-      <label className="text-sm text-gray-600">{label}</label>
+      <label style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}>{label}</label>
       <div className="flex items-center gap-1">
         <input
           type="number"
@@ -115,19 +109,43 @@ function SettingInput({ label, value, onChange, step, unit, color = "gray" }) {
           onChange={(e) => onChange(Number(e.target.value))}
           step={step}
           min={0}
-          className={`w-20 px-2 py-1.5 border rounded-lg text-right font-bold focus:ring-2 outline-none text-sm bg-white ${colors[color]}`}
+          className="field-editable"
+          style={{
+            width: 72,
+            padding: "4px 6px",
+            textAlign: "right",
+            fontSize: 13,
+            fontWeight: 600,
+            borderLeftColor: accentColor || "var(--ji-green)",
+          }}
         />
-        <span className="text-xs text-gray-400 w-4">{unit}</span>
+        <span style={{ fontSize: 11, color: "var(--text-muted)", width: 14 }}>{unit}</span>
       </div>
     </div>
   );
+}
+
+function marginColor(pct) {
+  if (pct > 25) return "var(--ji-green)";
+  if (pct > 15) return "var(--fund-amber)";
+  return "var(--warn-red)";
+}
+
+function rowHealthClass(marginPct, qty) {
+  if (qty === 0) return "row-neutral";
+  if (marginPct > 25) return "row-healthy";
+  if (marginPct > 15) return "row-warning";
+  return "row-danger";
 }
 
 export default function WebstoreCalculator() {
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [items, setItems] = useState(DEFAULT_ITEMS.map((i) => ({ ...i })));
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [viewMode, setViewMode] = useState("internal"); // internal | client
   const nextId = useRef(100);
+  const kpiRef = useRef(null);
+  const [showStickyBar, setShowStickyBar] = useState(false);
 
   const updateSetting = useCallback((key, val) => {
     setSettings((prev) => ({ ...prev, [key]: val }));
@@ -143,6 +161,18 @@ export default function WebstoreCalculator() {
 
   const removeItem = useCallback((id) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
+  const duplicateItem = useCallback((id) => {
+    setItems((prev) => {
+      const source = prev.find((item) => item.id === id);
+      if (!source) return prev;
+      const idx = prev.findIndex((item) => item.id === id);
+      const newItem = { ...source, id: ++nextId.current, qty: 0 };
+      const next = [...prev];
+      next.splice(idx + 1, 0, newItem);
+      return next;
+    });
   }, []);
 
   const calculated = useMemo(() => items.map((item) => ({ item, calc: calcItem(item, settings) })), [items, settings]);
@@ -164,270 +194,545 @@ export default function WebstoreCalculator() {
     t.jiFeeRevenue = t.jiGross - t.decoProfitTotal - t.apparelMarkupTotal;
     t.totalPayouts = t.fundPayout + t.clientFeeTotal + t.apparelTotal + t.decoCogTotal;
     t.grossMargin = t.revenue > 0 ? (t.jiGross / t.revenue) * 100 : 0;
+    t.avgProfitPerUnit = t.qty > 0 ? t.jiGross / t.qty : 0;
     return t;
   }, [calculated]);
 
+  // Quote intelligence
+  const insights = useMemo(() => {
+    const warnings = [];
+    const activeItems = calculated.filter(({ item }) => item.qty > 0);
+
+    const lowMarginItems = activeItems.filter(({ calc }) => calc.marginPct < 20 && calc.marginPct > 0);
+    if (lowMarginItems.length > 0) {
+      warnings.push({ type: "warn", text: `${lowMarginItems.length} item${lowMarginItems.length > 1 ? "s" : ""} below 20% margin` });
+    }
+
+    const negativeItems = activeItems.filter(({ calc }) => calc.jiGross < 0);
+    negativeItems.forEach(({ item, calc }) => {
+      warnings.push({ type: "danger", text: `${item.product} generating ${fmt(calc.jiTotalPerUnit)}/unit loss` });
+    });
+
+    if (activeItems.length > 0) {
+      const best = activeItems.reduce((a, b) => a.calc.jiTotalPerUnit > b.calc.jiTotalPerUnit ? a : b);
+      const worst = activeItems.reduce((a, b) => a.calc.jiTotalPerUnit < b.calc.jiTotalPerUnit ? a : b);
+      if (best.item.id !== worst.item.id) {
+        warnings.push({ type: "info", text: `Best: ${best.item.product} (${fmt(best.calc.jiTotalPerUnit)}/unit) | Worst: ${worst.item.product} (${fmt(worst.calc.jiTotalPerUnit)}/unit)` });
+      }
+    }
+
+    const payoutPct = settings.fundraiserPct + settings.clientFeePct;
+    if (payoutPct > 40) {
+      warnings.push({ type: "warn", text: `Payout allocation at ${fmtPct(payoutPct)} — consider rebalancing` });
+    }
+
+    return warnings;
+  }, [calculated, settings]);
+
+  // Sticky performance bar via IntersectionObserver
+  useEffect(() => {
+    const el = kpiRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowStickyBar(!entry.isIntersecting),
+      { threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // CSV export
+  const exportCSV = useCallback(() => {
+    const isClient = viewMode === "client";
+    let headers, rows;
+
+    if (isClient) {
+      headers = ["Product", "Location", "Retail Price", "Qty", "Subtotal"];
+      rows = calculated.filter(({ item }) => item.qty > 0).map(({ item, calc }) => [
+        item.product, item.location, calc.roundedRetail.toFixed(2), item.qty, calc.revenue.toFixed(2),
+      ]);
+      rows.push(["", "", "", totals.qty, totals.revenue.toFixed(2)]);
+    } else {
+      headers = ["Product", "Location", "Deco COGS", "Deco Price", "Apparel $", "Retail", "Fund $/u", "Client $/u", "JI $/u", "Qty", "Revenue", "JI Profit"];
+      rows = calculated.map(({ item, calc }) => [
+        item.product, item.location, item.decoCogs.toFixed(2), calc.decoPrice.toFixed(2),
+        item.apparelCost.toFixed(2), calc.roundedRetail.toFixed(2), calc.fundAmt.toFixed(2),
+        calc.clientFeeAmt.toFixed(2), calc.jiTotalPerUnit.toFixed(2), item.qty,
+        calc.revenue.toFixed(2), calc.jiGross.toFixed(2),
+      ]);
+      rows.push(["", "", "", "", "", "", "", "", "TOTALS", totals.qty, totals.revenue.toFixed(2), totals.jiGross.toFixed(2)]);
+    }
+
+    const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${settings.clientName.replace(/\s+/g, "-")}-quote-${viewMode}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [calculated, totals, settings.clientName, viewMode]);
+
+  const duplicateQuote = useCallback(() => {
+    setItems((prev) => prev.map((item) => ({ ...item, qty: 0 })));
+  }, []);
+
   const allocationPct = settings.jiFeePct + settings.clientFeePct + settings.fundraiserPct;
   const overAllocated = allocationPct >= 100;
+  const isClient = viewMode === "client";
 
   return (
     <>
-      {/* Store header bar */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
-        <div className="flex gap-4 items-center">
-          <div>
-            <label className="text-xs text-gray-400">Store Name</label>
+      {/* KPI Strip */}
+      <div ref={kpiRef} className="panel p-3 mb-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          {/* Store info */}
+          <div className="flex gap-3 items-center">
             <input
               value={settings.clientName}
               onChange={(e) => updateSetting("clientName", e.target.value)}
-              className="block w-48 px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-400 focus:bg-white outline-none"
+              className="field-editable"
+              style={{ padding: "4px 10px", fontSize: 14, fontWeight: 600, width: 200 }}
             />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400">Contract Client</label>
+            <span style={{ color: "var(--text-muted)", fontSize: 11 }}>/</span>
             <input
               value={settings.contractClient}
               onChange={(e) => updateSetting("contractClient", e.target.value)}
-              className="block w-36 px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-400 focus:bg-white outline-none"
+              className="field-editable"
+              style={{ padding: "4px 10px", fontSize: 13, fontWeight: 500, width: 120 }}
             />
           </div>
-        </div>
-        <div className="text-right">
-          <div className="text-2xl font-bold text-emerald-600 tabular-nums">{fmt(totals.jiGross)}</div>
-          <div className="text-xs text-gray-400">JI Profit on {totals.qty} units</div>
+
+          {/* KPI metrics */}
+          <div className="flex gap-6 items-center flex-wrap">
+            <div className="text-center">
+              <div className="kpi-label">Revenue</div>
+              <div className="kpi-value" style={{ color: "var(--text-primary)", fontSize: 24 }}>{fmt(totals.revenue)}</div>
+            </div>
+            <div className="text-center">
+              <div className="kpi-label">Profit</div>
+              <div className="kpi-value" style={{ color: "var(--ji-green)", fontSize: 24 }}>{fmt(totals.jiGross)}</div>
+            </div>
+            <div className="text-center">
+              <div className="kpi-label">Margin</div>
+              <div className="kpi-value" style={{ color: marginColor(totals.grossMargin), fontSize: 24 }}>{fmtPct(totals.grossMargin)}</div>
+            </div>
+            <div className="text-center">
+              <div className="kpi-label">Units</div>
+              <div className="kpi-value" style={{ color: "var(--text-secondary)", fontSize: 24 }}>{totals.qty}</div>
+            </div>
+            <div className="text-center">
+              <div className="kpi-label">Avg $/Unit</div>
+              <div className="kpi-value" style={{ color: "var(--text-secondary)", fontSize: 24 }}>{fmt(totals.avgProfitPerUnit)}</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Settings + Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
-        <div className="lg:col-span-3 bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* JI Settings */}
-            <div>
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2.5 flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Jersey Ink
-              </h3>
-              <div className="bg-emerald-50/50 rounded-lg p-3 space-y-2.5 border border-emerald-100">
-                <SettingInput label="JI Fee %" value={settings.jiFeePct} onChange={(v) => updateSetting("jiFeePct", v)} step={0.5} unit="%" color="emerald" />
-                <SettingInput label="JI Min $/Unit" value={settings.jiMinPerUnit} onChange={(v) => updateSetting("jiMinPerUnit", v)} step={0.25} unit="$" color="emerald" />
-                <SettingInput label="Apparel Markup" value={settings.apparelMarkupPct} onChange={(v) => updateSetting("apparelMarkupPct", v)} step={0.5} unit="%" color="emerald" />
-                <SettingInput label="Deco Margin" value={settings.decoMarginPct} onChange={(v) => updateSetting("decoMarginPct", v)} step={1} unit="%" color="emerald" />
-              </div>
-            </div>
+      {/* Action Bar */}
+      <div className="flex gap-2 mb-4 flex-wrap items-center">
+        <button onClick={addItem} className="btn-primary" style={{ padding: "5px 14px", fontSize: 12 }}>+ Add Item</button>
+        <button onClick={duplicateQuote} className="btn" style={{ padding: "5px 14px", fontSize: 12 }}>Duplicate Quote</button>
+        <button onClick={exportCSV} className="btn" style={{ padding: "5px 14px", fontSize: 12 }}>Export CSV</button>
+        <label className="flex items-center gap-1.5 cursor-pointer select-none" style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          <input type="checkbox" checked={showBreakdown} onChange={(e) => setShowBreakdown(e.target.checked)} className="rf-check" />
+          Full Breakdown
+        </label>
+        <div className="flex-1" />
+        {/* View mode toggle */}
+        <div className="flex" style={{ background: "var(--bg-deep)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", padding: 2 }}>
+          {[
+            { id: "internal", label: "Internal" },
+            { id: "client", label: "Client View" },
+          ].map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setViewMode(m.id)}
+              style={{
+                padding: "4px 12px",
+                borderRadius: "var(--radius-sm)",
+                fontSize: 11,
+                fontWeight: viewMode === m.id ? 600 : 400,
+                background: viewMode === m.id ? "var(--bg-surface)" : "transparent",
+                color: viewMode === m.id ? "var(--ji-green)" : "var(--text-muted)",
+                border: viewMode === m.id ? "1px solid var(--border-medium)" : "1px solid transparent",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-            {/* Client Settings */}
-            <div>
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2.5 flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Client ({settings.contractClient})
-              </h3>
-              <div className="bg-blue-50/50 rounded-lg p-3 space-y-2.5 border border-blue-100">
-                <SettingInput label="Client Fee %" value={settings.clientFeePct} onChange={(v) => updateSetting("clientFeePct", v)} step={0.5} unit="%" color="blue" />
-                <SettingInput label="Client Min $/Unit" value={settings.clientMinPerUnit} onChange={(v) => updateSetting("clientMinPerUnit", v)} step={0.25} unit="$" color="blue" />
-              </div>
-            </div>
+      {/* 2-Panel Layout */}
+      {!isClient && (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
+          {/* Left: Pricing Controls */}
+          <div className="lg:col-span-3 space-y-4">
+            <div className="panel p-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* JI Settings */}
+                <div>
+                  <h3 className="section-label mb-2 flex items-center gap-2">
+                    <span style={{ width: 8, height: 8, borderRadius: "var(--radius-sm)", background: "var(--ji-green)", display: "inline-block" }} /> Jersey Ink
+                  </h3>
+                  <div className="panel-inset p-3 space-y-2">
+                    <SettingInput label="JI Fee %" value={settings.jiFeePct} onChange={(v) => updateSetting("jiFeePct", v)} step={0.5} unit="%" accentColor="var(--ji-green)" />
+                    <SettingInput label="JI Min $/Unit" value={settings.jiMinPerUnit} onChange={(v) => updateSetting("jiMinPerUnit", v)} step={0.25} unit="$" accentColor="var(--ji-green)" />
+                    <SettingInput label="Apparel Markup" value={settings.apparelMarkupPct} onChange={(v) => updateSetting("apparelMarkupPct", v)} step={0.5} unit="%" accentColor="var(--ji-green)" />
+                    <SettingInput label="Deco Margin" value={settings.decoMarginPct} onChange={(v) => updateSetting("decoMarginPct", v)} step={1} unit="%" accentColor="var(--ji-green)" />
+                  </div>
+                </div>
 
-            {/* Fundraiser Settings */}
-            <div>
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2.5 flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Fundraiser
-              </h3>
-              <div className="bg-amber-50/50 rounded-lg p-3 space-y-2.5 border border-amber-100">
-                <SettingInput label="Fundraiser %" value={settings.fundraiserPct} onChange={(v) => updateSetting("fundraiserPct", v)} step={0.5} unit="%" color="amber" />
-                <SettingInput label="Fund Min $/Unit" value={settings.fundraiserMin} onChange={(v) => updateSetting("fundraiserMin", v)} step={0.25} unit="$" color="amber" />
+                {/* Client Settings */}
+                <div>
+                  <h3 className="section-label mb-2 flex items-center gap-2">
+                    <span style={{ width: 8, height: 8, borderRadius: "var(--radius-sm)", background: "var(--client-blue)", display: "inline-block" }} /> Client ({settings.contractClient})
+                  </h3>
+                  <div className="panel-inset p-3 space-y-2">
+                    <SettingInput label="Client Fee %" value={settings.clientFeePct} onChange={(v) => updateSetting("clientFeePct", v)} step={0.5} unit="%" accentColor="var(--client-blue)" />
+                    <SettingInput label="Client Min $/u" value={settings.clientMinPerUnit} onChange={(v) => updateSetting("clientMinPerUnit", v)} step={0.25} unit="$" accentColor="var(--client-blue)" />
+                  </div>
+                </div>
+
+                {/* Fundraiser Settings */}
+                <div>
+                  <h3 className="section-label mb-2 flex items-center gap-2">
+                    <span style={{ width: 8, height: 8, borderRadius: "var(--radius-sm)", background: "var(--fund-amber)", display: "inline-block" }} /> Fundraiser
+                  </h3>
+                  <div className="panel-inset p-3 space-y-2">
+                    <SettingInput label="Fundraiser %" value={settings.fundraiserPct} onChange={(v) => updateSetting("fundraiserPct", v)} step={0.5} unit="%" accentColor="var(--fund-amber)" />
+                    <SettingInput label="Fund Min $/u" value={settings.fundraiserMin} onChange={(v) => updateSetting("fundraiserMin", v)} step={0.25} unit="$" accentColor="var(--fund-amber)" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Allocation Bar */}
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border-subtle)" }}>
+                <div className="flex justify-between" style={{ fontSize: 11, marginBottom: 6 }}>
+                  <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>Retail % Allocation</span>
+                  <span className="tnum" style={{ fontWeight: 700, color: overAllocated ? "var(--warn-red)" : "var(--text-secondary)" }}>{fmtPct(allocationPct)}</span>
+                </div>
+                <div className="alloc-track" style={{ height: 12, display: "flex", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(settings.jiFeePct, 100)}%`, background: "var(--ji-green)", transition: "width 0.2s" }} />
+                  <div style={{ width: `${Math.min(settings.clientFeePct, 100 - settings.jiFeePct)}%`, background: "var(--client-blue)", transition: "width 0.2s" }} />
+                  <div style={{ width: `${Math.min(settings.fundraiserPct, 100 - settings.jiFeePct - settings.clientFeePct)}%`, background: "var(--fund-amber)", transition: "width 0.2s" }} />
+                </div>
+                <div className="flex gap-3 mt-1.5" style={{ fontSize: 11 }}>
+                  <span className="flex items-center gap-1"><span style={{ width: 6, height: 6, borderRadius: 2, background: "var(--ji-green)", display: "inline-block" }} /> JI</span>
+                  <span className="flex items-center gap-1"><span style={{ width: 6, height: 6, borderRadius: 2, background: "var(--client-blue)", display: "inline-block" }} /> Client</span>
+                  <span className="flex items-center gap-1"><span style={{ width: 6, height: 6, borderRadius: 2, background: "var(--fund-amber)", display: "inline-block" }} /> Fund</span>
+                  <span className="flex items-center gap-1" style={{ color: "var(--text-muted)" }}><span style={{ width: 6, height: 6, borderRadius: 2, background: "var(--text-muted)", display: "inline-block" }} /> Costs</span>
+                </div>
+                {overAllocated && (
+                  <div className="alert-danger" style={{ marginTop: 8, padding: "6px 10px", fontSize: 11, fontWeight: 500 }}>
+                    Fees exceed 100% — retail cannot cover costs
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Allocation Bar */}
-          <div className="mt-4 pt-3 border-t border-gray-200">
-            <div className="flex justify-between text-xs mb-1.5">
-              <span className="text-gray-500 font-medium">Retail % Allocation</span>
-              <span className={`font-bold ${overAllocated ? "text-red-500" : "text-gray-700"}`}>{fmtPct(allocationPct)}</span>
+          {/* Right: Financial Summary */}
+          <div className="lg:col-span-2 space-y-4">
+            <div className="panel p-4">
+              <h2 className="section-label mb-3">Order Summary</h2>
+              <div className="space-y-2" style={{ fontSize: 13 }}>
+                <div className="flex justify-between">
+                  <span style={{ color: "var(--text-muted)" }}>Total Units</span>
+                  <span className="tnum" style={{ fontWeight: 700, color: "var(--text-primary)" }}>{totals.qty}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span style={{ color: "var(--text-muted)" }}>Total Revenue</span>
+                  <span className="tnum" style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: 15 }}>{fmt(totals.revenue)}</span>
+                </div>
+
+                <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 8, marginTop: 4 }}>
+                  <div className="section-label" style={{ marginBottom: 6 }}>Payouts</div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between"><span style={{ color: "var(--fund-amber)" }}>Fundraiser</span><span className="tnum" style={{ color: "var(--fund-amber)" }}>{fmt(totals.fundPayout)}</span></div>
+                    <div className="flex justify-between"><span style={{ color: "var(--client-blue)" }}>{settings.contractClient} Fees</span><span className="tnum" style={{ color: "var(--client-blue)" }}>{fmt(totals.clientFeeTotal)}</span></div>
+                    <div className="flex justify-between"><span style={{ color: "var(--text-muted)" }}>Apparel Cost + Markup</span><span className="tnum" style={{ color: "var(--text-secondary)" }}>{fmt(totals.apparelTotal)}</span></div>
+                    <div className="flex justify-between"><span style={{ color: "var(--text-muted)" }}>Deco COGS</span><span className="tnum" style={{ color: "var(--text-secondary)" }}>{fmt(totals.decoCogTotal)}</span></div>
+                    <div className="flex justify-between" style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 4, marginTop: 4 }}>
+                      <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>Total Payouts + COGS</span>
+                      <span className="tnum" style={{ fontWeight: 600, color: "var(--text-primary)" }}>{fmt(totals.totalPayouts)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: "2px solid rgba(52, 211, 153, 0.3)", paddingTop: 8, marginTop: 4 }}>
+                  <div className="section-label" style={{ color: "var(--ji-green)", marginBottom: 6 }}>Jersey Ink Earnings</div>
+                  <div className="space-y-1" style={{ fontSize: 12 }}>
+                    <div className="flex justify-between"><span style={{ color: "var(--text-muted)" }}>JI Fee Revenue</span><span className="tnum">{fmt(totals.jiFeeRevenue)}</span></div>
+                    <div className="flex justify-between"><span style={{ color: "var(--text-muted)" }}>Apparel Markup Revenue</span><span className="tnum">{fmt(totals.apparelMarkupTotal)}</span></div>
+                    <div className="flex justify-between"><span style={{ color: "var(--text-muted)" }}>Deco Profit (margin)</span><span className="tnum">{fmt(totals.decoProfitTotal)}</span></div>
+                    <div className="flex justify-between" style={{ fontSize: 16, paddingTop: 6, borderTop: "1px solid rgba(52, 211, 153, 0.2)", marginTop: 4 }}>
+                      <span style={{ fontWeight: 700, color: "var(--ji-green)" }}>JI Total Profit</span>
+                      <span className="tnum" style={{ fontWeight: 700, color: "var(--ji-green)" }}>{fmt(totals.jiGross)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="panel-inset p-3 text-center" style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11, color: "var(--ji-green)", fontWeight: 500, marginBottom: 2 }}>Gross Margin</div>
+                  <div className="tnum" style={{ fontSize: 28, fontWeight: 700, color: marginColor(totals.grossMargin) }}>{fmtPct(totals.grossMargin)}</div>
+                </div>
+              </div>
             </div>
-            <div className="h-4 bg-gray-100 rounded-full overflow-hidden flex">
-              <div className="bg-emerald-500 transition-all" style={{ width: `${Math.min(settings.jiFeePct, 100)}%` }} />
-              <div className="bg-blue-400 transition-all" style={{ width: `${Math.min(settings.clientFeePct, 100 - settings.jiFeePct)}%` }} />
-              <div className="bg-amber-400 transition-all" style={{ width: `${Math.min(settings.fundraiserPct, 100 - settings.jiFeePct - settings.clientFeePct)}%` }} />
-            </div>
-            <div className="flex gap-3 mt-1.5 text-xs">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> JI</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400" /> Client</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Fund</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-200 border border-gray-300" /> Costs</span>
-            </div>
-            {overAllocated && (
-              <div className="mt-2 text-xs text-red-600 font-medium bg-red-50 rounded-lg p-2 border border-red-200">
-                Fees exceed 100% — retail cannot cover costs
+
+            {/* Quote Intelligence */}
+            {insights.length > 0 && (
+              <div className="panel p-4">
+                <h2 className="section-label mb-2">Quote Intelligence</h2>
+                <div className="space-y-2">
+                  {insights.map((w, i) => (
+                    <div key={i} className={w.type === "danger" ? "alert-danger" : w.type === "warn" ? "alert-warn" : "alert-info"} style={{ padding: "6px 10px", fontSize: 11, fontWeight: 500 }}>
+                      {w.text}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
         </div>
+      )}
 
-        {/* Order Summary */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Order Summary</h2>
-          <div className="space-y-2.5 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Total Units</span><span className="font-bold text-gray-800">{totals.qty}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Total Revenue</span><span className="font-bold text-gray-800 text-base">{fmt(totals.revenue)}</span></div>
-
-            <div className="border-t border-gray-100 pt-2 space-y-1.5">
-              <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">Payouts</div>
-              <div className="flex justify-between"><span className="text-amber-600">Fundraiser</span><span className="text-amber-600 tabular-nums">{fmt(totals.fundPayout)}</span></div>
-              <div className="flex justify-between"><span className="text-blue-600">{settings.contractClient} Fees</span><span className="text-blue-600 tabular-nums">{fmt(totals.clientFeeTotal)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Apparel Cost + Markup</span><span className="text-gray-600 tabular-nums">{fmt(totals.apparelTotal)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Deco COGS</span><span className="text-gray-600 tabular-nums">{fmt(totals.decoCogTotal)}</span></div>
-              <div className="flex justify-between border-t border-gray-100 pt-1.5">
-                <span className="font-medium text-gray-600">Total Payouts + COGS</span>
-                <span className="font-medium text-gray-700 tabular-nums">{fmt(totals.totalPayouts)}</span>
-              </div>
+      {/* Client View - simplified summary */}
+      {isClient && (
+        <div className="panel p-4 mb-4">
+          <h2 className="section-label mb-3">{settings.clientName} — Quote Summary</h2>
+          <div className="grid grid-cols-3 gap-4" style={{ fontSize: 13 }}>
+            <div className="panel-inset p-3 text-center">
+              <div className="kpi-label mb-1">Total</div>
+              <div className="tnum" style={{ fontSize: 22, fontWeight: 700, color: "var(--text-primary)" }}>{fmt(totals.revenue)}</div>
             </div>
-
-            <div className="border-t-2 border-emerald-200 pt-2.5 space-y-1.5">
-              <div className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Jersey Ink Earnings</div>
-              <div className="flex justify-between text-xs"><span className="text-gray-500">JI Fee Revenue</span><span className="tabular-nums">{fmt(totals.jiFeeRevenue)}</span></div>
-              <div className="flex justify-between text-xs"><span className="text-gray-500">Apparel Markup Revenue</span><span className="tabular-nums">{fmt(totals.apparelMarkupTotal)}</span></div>
-              <div className="flex justify-between text-xs"><span className="text-gray-500">Deco Profit (margin)</span><span className="tabular-nums">{fmt(totals.decoProfitTotal)}</span></div>
-              <div className="flex justify-between text-lg pt-1 border-t border-emerald-100">
-                <span className="font-bold text-emerald-800">JI Total Profit</span>
-                <span className="font-bold text-emerald-800 tabular-nums">{fmt(totals.jiGross)}</span>
-              </div>
+            <div className="panel-inset p-3 text-center">
+              <div className="kpi-label mb-1">Fundraiser Earnings</div>
+              <div className="tnum" style={{ fontSize: 22, fontWeight: 700, color: "var(--fund-amber)" }}>{fmt(totals.fundPayout)}</div>
             </div>
-
-            <div className="bg-emerald-50 rounded-xl p-3 text-center border border-emerald-100">
-              <div className="text-xs text-emerald-600 font-medium">Gross Margin</div>
-              <div className="text-2xl font-bold text-emerald-700">{fmtPct(totals.grossMargin)}</div>
+            <div className="panel-inset p-3 text-center">
+              <div className="kpi-label mb-1">{settings.contractClient} Earnings</div>
+              <div className="tnum" style={{ fontSize: 22, fontWeight: 700, color: "var(--client-blue)" }}>{fmt(totals.clientFeeTotal)}</div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Product Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-4">
-        <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-          <h2 className="text-sm font-bold text-gray-700">Product Pricing Table</h2>
-          <div className="flex gap-3 items-center">
-            <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 transition-colors">
-              <input type="checkbox" checked={showBreakdown} onChange={(e) => setShowBreakdown(e.target.checked)} className="rounded accent-emerald-600" />
-              Full breakdown
-            </label>
-            <button onClick={addItem} className="text-xs px-3 py-1.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors font-medium shadow-sm">
-              + Add Item
-            </button>
-          </div>
+      <div className="panel overflow-hidden mb-4">
+        <div className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+          <h2 style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>
+            {isClient ? "Products" : "Product Pricing Table"}
+          </h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="rf-table">
             <thead>
-              <tr className="bg-slate-800 text-white text-xs">
-                <th className="px-1 py-2.5 w-7"></th>
-                <th className="px-2 py-2.5 text-left font-semibold uppercase tracking-wider">Product</th>
-                <th className="px-2 py-2.5 text-left font-semibold uppercase tracking-wider w-28">Location</th>
-                <th className="px-2 py-2.5 text-right font-semibold uppercase tracking-wider w-20">
-                  <div>Deco</div><div className="text-slate-400 font-normal normal-case">COGS</div>
-                </th>
-                <th className="px-2 py-2.5 text-right font-semibold uppercase tracking-wider w-20">
-                  <div>Deco</div><div className="text-slate-400 font-normal normal-case">Price</div>
-                </th>
-                <th className="px-2 py-2.5 text-right font-semibold uppercase tracking-wider w-20">Apparel $</th>
-                <th className="px-2 py-2.5 text-right font-semibold uppercase tracking-wider w-20 bg-slate-700">Retail</th>
-                <th className="px-2 py-2.5 text-center font-semibold uppercase tracking-wider w-20">
-                  <div>Fund</div><div className="text-slate-400 font-normal normal-case">$/unit</div>
-                </th>
-                <th className="px-2 py-2.5 text-center font-semibold uppercase tracking-wider w-20">
-                  <div>Client</div><div className="text-slate-400 font-normal normal-case">$/unit</div>
-                </th>
-                <th className="px-2 py-2.5 text-center font-semibold uppercase tracking-wider w-20">
-                  <div>JI</div><div className="text-slate-400 font-normal normal-case">$/unit</div>
-                </th>
-                {showBreakdown && (
+              <tr>
+                {!isClient && <th style={{ width: 28 }}></th>}
+                <th style={{ textAlign: "left", paddingLeft: 10 }}>Product</th>
+                <th style={{ textAlign: "left", width: 100 }}>Location</th>
+                {!isClient && (
                   <>
-                    <th className="px-2 py-2.5 text-right font-semibold uppercase tracking-wider w-16 bg-slate-700/50">
-                      <div>Deco</div><div className="text-slate-400 font-normal normal-case">Profit</div>
+                    <th style={{ textAlign: "right", width: 72 }}>
+                      <div>Deco</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>COGS</div>
                     </th>
-                    <th className="px-2 py-2.5 text-right font-semibold uppercase tracking-wider w-16 bg-slate-700/50">
-                      <div>Apprl</div><div className="text-slate-400 font-normal normal-case">Markup</div>
+                    <th style={{ textAlign: "right", width: 72 }}>
+                      <div>Deco</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>Price</div>
                     </th>
+                    <th style={{ textAlign: "right", width: 72 }}>Apparel $</th>
                   </>
                 )}
-                <th className="px-2 py-2.5 text-center font-semibold uppercase tracking-wider w-14">Qty</th>
-                <th className="px-2 py-2.5 text-right font-semibold uppercase tracking-wider w-20">Revenue</th>
-                <th className="px-2 py-2.5 text-right font-semibold uppercase tracking-wider w-20 bg-emerald-900/30">JI Profit</th>
+                <th style={{ textAlign: "right", width: 72 }}>Retail</th>
+                {!isClient && (
+                  <>
+                    <th style={{ textAlign: "center", width: 72 }}>
+                      <div>Fund</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>$/unit</div>
+                    </th>
+                    <th style={{ textAlign: "center", width: 72 }}>
+                      <div>Client</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>$/unit</div>
+                    </th>
+                    <th style={{ textAlign: "center", width: 72 }}>
+                      <div>JI</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>$/unit</div>
+                    </th>
+                    {showBreakdown && (
+                      <>
+                        <th style={{ textAlign: "right", width: 64 }}>
+                          <div>Deco</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>Profit</div>
+                        </th>
+                        <th style={{ textAlign: "right", width: 64 }}>
+                          <div>Apprl</div><div style={{ fontWeight: 400, textTransform: "none", color: "var(--text-muted)" }}>Markup</div>
+                        </th>
+                      </>
+                    )}
+                  </>
+                )}
+                <th style={{ textAlign: "center", width: 56 }}>Qty</th>
+                <th style={{ textAlign: "right", width: 80 }}>{isClient ? "Subtotal" : "Revenue"}</th>
+                {!isClient && <th style={{ textAlign: "right", width: 80, color: "var(--ji-green)" }}>JI Profit</th>}
+                {!isClient && <th style={{ width: 28 }}></th>}
               </tr>
             </thead>
             <tbody>
-              {calculated.map(({ item, calc }, idx) => (
-                <tr key={item.id} className={`border-b border-gray-100 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"} hover:bg-emerald-50/30 transition-colors`}>
-                  <td className="px-1 py-1.5 text-center">
-                    <button onClick={() => removeItem(item.id)} className="text-gray-300 hover:text-red-500 transition-colors text-xs leading-none" title="Remove">×</button>
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input value={item.product} onChange={(e) => updateItem(item.id, "product", e.target.value)}
-                      className="w-full bg-transparent border-0 text-sm font-medium text-gray-800 focus:ring-0 outline-none px-0" placeholder="Product name..." />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <select value={item.location} onChange={(e) => updateItem(item.id, "location", e.target.value)}
-                      className="w-full bg-transparent border-0 text-xs text-gray-600 focus:ring-0 outline-none px-0 cursor-pointer">
-                      {LOCATIONS.map((loc) => (
-                        <option key={loc} value={loc}>{loc}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input type="number" value={item.decoCogs} onChange={(e) => updateItem(item.id, "decoCogs", parseFloat(e.target.value) || 0)}
-                      step={0.01} min={0} className="w-full bg-transparent border-0 text-sm text-right font-medium text-blue-700 focus:ring-0 outline-none tabular-nums" />
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-gray-600 text-sm">{fmt(calc.decoPrice)}</td>
-                  <td className="px-2 py-1.5">
-                    <input type="number" value={item.apparelCost} onChange={(e) => updateItem(item.id, "apparelCost", parseFloat(e.target.value) || 0)}
-                      step={0.01} min={0} className="w-full bg-transparent border-0 text-sm text-right font-medium text-blue-700 focus:ring-0 outline-none tabular-nums" />
-                  </td>
-                  <td className="px-2 py-1.5 text-right bg-gray-50/50">
-                    <span className="font-bold text-gray-900 tabular-nums text-base">{fmt(calc.roundedRetail)}</span>
-                  </td>
-                  <td className="px-2 py-1.5 text-center">
-                    <div className="flex items-center justify-center gap-0.5">
-                      <span className="tabular-nums font-medium text-amber-700 text-xs">{fmt(calc.fundAmt)}</span>
-                      {calc.fundMinApplied && <span className="text-xs bg-amber-100 text-amber-700 px-1 rounded font-bold leading-tight">M</span>}
-                    </div>
-                  </td>
-                  <td className="px-2 py-1.5 text-center">
-                    <div className="flex items-center justify-center gap-0.5">
-                      <span className="tabular-nums font-medium text-blue-600 text-xs">{fmt(calc.clientFeeAmt)}</span>
-                      {calc.clientMinApplied && <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded font-bold leading-tight">M</span>}
-                    </div>
-                  </td>
-                  <td className="px-2 py-1.5 text-center">
-                    <div className="flex items-center justify-center gap-0.5">
-                      <span className="tabular-nums font-medium text-emerald-600 text-xs">{fmt(calc.jiFeeAmt)}</span>
-                      {calc.jiMinApplied && <span className="text-xs bg-emerald-100 text-emerald-700 px-1 rounded font-bold leading-tight">M</span>}
-                    </div>
-                  </td>
-                  {showBreakdown && (
-                    <>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-emerald-600 text-xs bg-gray-50/30">{fmt(calc.decoProfit)}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-emerald-600 text-xs bg-gray-50/30">{fmt(calc.apparelMarkup)}</td>
-                    </>
-                  )}
-                  <td className="px-2 py-1.5">
-                    <input type="number" step={1} min={0} value={item.qty}
-                      onChange={(e) => updateItem(item.id, "qty", parseInt(e.target.value) || 0)}
-                      className="w-14 bg-transparent border-0 text-sm text-center text-blue-700 font-semibold focus:ring-0 outline-none tabular-nums" />
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums font-medium text-gray-700">
-                    {item.qty > 0 ? fmt(calc.revenue) : <span className="text-gray-300">—</span>}
-                  </td>
-                  <td className={`px-2 py-1.5 text-right tabular-nums font-bold ${calc.jiGross > 0 ? "text-emerald-700" : calc.jiGross < 0 ? "text-red-600" : "text-gray-300"}`}>
-                    {item.qty > 0 ? fmt(calc.jiGross) : <span className="text-gray-300">—</span>}
-                  </td>
-                </tr>
-              ))}
+              {calculated.map(({ item, calc }) => {
+                if (isClient && item.qty === 0) return null;
+                return (
+                  <tr key={item.id} className={rowHealthClass(calc.marginPct, item.qty)} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                    {!isClient && (
+                      <td style={{ textAlign: "center", padding: "4px 2px" }}>
+                        <button
+                          onClick={() => removeItem(item.id)}
+                          className="btn-ghost"
+                          style={{ width: 20, height: 20, fontSize: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: "var(--radius-sm)" }}
+                          title="Remove"
+                        >
+                          x
+                        </button>
+                      </td>
+                    )}
+                    <td style={{ padding: "4px 8px" }}>
+                      {isClient ? (
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{item.product}</span>
+                      ) : (
+                        <input
+                          value={item.product}
+                          onChange={(e) => updateItem(item.id, "product", e.target.value)}
+                          className="field-editable"
+                          style={{ width: "100%", padding: "3px 6px", fontSize: 13, fontWeight: 500 }}
+                          placeholder="Product name..."
+                        />
+                      )}
+                    </td>
+                    <td style={{ padding: "4px 6px" }}>
+                      {isClient ? (
+                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.location}</span>
+                      ) : (
+                        <select
+                          value={item.location}
+                          onChange={(e) => updateItem(item.id, "location", e.target.value)}
+                          className="rf-select"
+                          style={{ width: "100%", padding: "3px 4px" }}
+                        >
+                          {LOCATIONS.map((loc) => (
+                            <option key={loc} value={loc}>{loc}</option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                    {!isClient && (
+                      <>
+                        <td style={{ padding: "4px 6px" }}>
+                          <input
+                            type="number"
+                            value={item.decoCogs}
+                            onChange={(e) => updateItem(item.id, "decoCogs", parseFloat(e.target.value) || 0)}
+                            step={0.01}
+                            min={0}
+                            className="field-editable-blue"
+                            style={{ width: "100%", padding: "3px 4px", textAlign: "right", fontSize: 13, fontWeight: 600 }}
+                          />
+                        </td>
+                        <td className="field-readonly" style={{ padding: "4px 6px", textAlign: "right", fontSize: 13 }}>
+                          {fmt(calc.decoPrice)}
+                        </td>
+                        <td style={{ padding: "4px 6px" }}>
+                          <input
+                            type="number"
+                            value={item.apparelCost}
+                            onChange={(e) => updateItem(item.id, "apparelCost", parseFloat(e.target.value) || 0)}
+                            step={0.01}
+                            min={0}
+                            className="field-editable-blue"
+                            style={{ width: "100%", padding: "3px 4px", textAlign: "right", fontSize: 13, fontWeight: 600 }}
+                          />
+                        </td>
+                      </>
+                    )}
+                    <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                      <span className="tnum" style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: 14 }}>{fmt(calc.roundedRetail)}</span>
+                    </td>
+                    {!isClient && (
+                      <>
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="tnum" style={{ fontWeight: 500, color: "var(--fund-amber)", fontSize: 12 }}>{fmt(calc.fundAmt)}</span>
+                            {calc.fundMinApplied && <span style={{ fontSize: 9, background: "rgba(251,191,36,0.15)", color: "var(--fund-amber)", padding: "1px 4px", borderRadius: 2, fontWeight: 700 }}>M</span>}
+                          </div>
+                        </td>
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="tnum" style={{ fontWeight: 500, color: "var(--client-blue)", fontSize: 12 }}>{fmt(calc.clientFeeAmt)}</span>
+                            {calc.clientMinApplied && <span style={{ fontSize: 9, background: "rgba(96,165,250,0.15)", color: "var(--client-blue)", padding: "1px 4px", borderRadius: 2, fontWeight: 700 }}>M</span>}
+                          </div>
+                        </td>
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="tnum" style={{ fontWeight: 500, color: "var(--ji-green)", fontSize: 12 }}>{fmt(calc.jiFeeAmt)}</span>
+                            {calc.jiMinApplied && <span style={{ fontSize: 9, background: "rgba(52,211,153,0.15)", color: "var(--ji-green)", padding: "1px 4px", borderRadius: 2, fontWeight: 700 }}>M</span>}
+                          </div>
+                        </td>
+                        {showBreakdown && (
+                          <>
+                            <td className="tnum" style={{ padding: "4px 6px", textAlign: "right", color: "var(--ji-green)", fontSize: 12 }}>{fmt(calc.decoProfit)}</td>
+                            <td className="tnum" style={{ padding: "4px 6px", textAlign: "right", color: "var(--ji-green)", fontSize: 12 }}>{fmt(calc.apparelMarkup)}</td>
+                          </>
+                        )}
+                      </>
+                    )}
+                    <td style={{ padding: "4px 6px" }}>
+                      {isClient ? (
+                        <span className="tnum" style={{ display: "block", textAlign: "center", fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{item.qty}</span>
+                      ) : (
+                        <input
+                          type="number"
+                          step={1}
+                          min={0}
+                          value={item.qty}
+                          onChange={(e) => updateItem(item.id, "qty", parseInt(e.target.value) || 0)}
+                          className="field-editable-blue"
+                          style={{ width: 50, padding: "3px 4px", textAlign: "center", fontSize: 13, fontWeight: 600 }}
+                        />
+                      )}
+                    </td>
+                    <td className="tnum" style={{ padding: "4px 6px", textAlign: "right", fontWeight: 500, color: item.qty > 0 ? "var(--text-secondary)" : "var(--text-muted)" }}>
+                      {item.qty > 0 ? fmt(calc.revenue) : "\u2014"}
+                    </td>
+                    {!isClient && (
+                      <td className="tnum" style={{
+                        padding: "4px 6px",
+                        textAlign: "right",
+                        fontWeight: 700,
+                        color: item.qty > 0 ? (calc.jiGross > 0 ? "var(--ji-green)" : calc.jiGross < 0 ? "var(--warn-red)" : "var(--text-muted)") : "var(--text-muted)",
+                      }}>
+                        {item.qty > 0 ? fmt(calc.jiGross) : "\u2014"}
+                      </td>
+                    )}
+                    {!isClient && (
+                      <td style={{ textAlign: "center", padding: "4px 2px" }}>
+                        <button
+                          onClick={() => duplicateItem(item.id)}
+                          className="btn-ghost"
+                          style={{ width: 20, height: 20, fontSize: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: "var(--radius-sm)", color: "var(--text-muted)" }}
+                          title="Duplicate"
+                        >
+                          +
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
-              <tr className="bg-slate-800 text-white font-semibold text-xs">
-                <td colSpan={showBreakdown ? 12 : 10} className="px-2 py-2.5 text-right uppercase tracking-wider">Totals</td>
-                <td className="px-2 py-2.5 text-center tabular-nums">{totals.qty}</td>
-                <td className="px-2 py-2.5 text-right tabular-nums">{fmt(totals.revenue)}</td>
-                <td className="px-2 py-2.5 text-right tabular-nums text-emerald-300 text-sm">{fmt(totals.jiGross)}</td>
+              <tr>
+                <td colSpan={isClient ? 3 : (showBreakdown ? 12 : 10)} style={{ textAlign: "right", fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Totals</td>
+                <td className="tnum" style={{ textAlign: "center", fontSize: 12, color: "var(--text-secondary)" }}>{totals.qty}</td>
+                <td className="tnum" style={{ textAlign: "right", fontSize: 12, color: "var(--text-secondary)" }}>{fmt(totals.revenue)}</td>
+                {!isClient && <td className="tnum" style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--ji-green)" }}>{fmt(totals.jiGross)}</td>}
+                {!isClient && <td></td>}
               </tr>
             </tfoot>
           </table>
@@ -435,38 +740,75 @@ export default function WebstoreCalculator() {
       </div>
 
       {/* Revenue Waterfall */}
-      {totals.revenue > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2.5">Revenue Waterfall</h3>
-          <div className="h-10 rounded-xl overflow-hidden flex text-xs font-bold text-white shadow-inner">
+      {!isClient && totals.revenue > 0 && (
+        <div className="panel p-4">
+          <h3 className="section-label mb-3">Revenue Waterfall</h3>
+          <div className="waterfall-bar" style={{ height: 36, display: "flex", fontSize: 11, fontWeight: 700, color: "white" }}>
             {[
-              { val: totals.fundPayout, color: "bg-amber-500", label: "Fund" },
-              { val: totals.clientFeeTotal, color: "bg-blue-500", label: "Client" },
-              { val: totals.rawApparelCost, color: "bg-gray-400", label: "Apparel" },
-              { val: totals.decoCogTotal, color: "bg-red-400", label: "Deco COGS" },
-              { val: totals.decoProfitTotal, color: "bg-teal-500", label: "Deco Profit" },
-              { val: totals.jiFeeRevenue, color: "bg-emerald-600", label: "JI Fees" },
-              { val: totals.apparelMarkupTotal, color: "bg-emerald-400", label: "Apprl Mkup" },
+              { val: totals.fundPayout, bg: "var(--fund-amber)", label: "Fund" },
+              { val: totals.clientFeeTotal, bg: "var(--client-blue)", label: "Client" },
+              { val: totals.rawApparelCost, bg: "#64748b", label: "Apparel" },
+              { val: totals.decoCogTotal, bg: "var(--warn-red)", label: "Deco COGS" },
+              { val: totals.decoProfitTotal, bg: "#14b8a6", label: "Deco Profit" },
+              { val: totals.jiFeeRevenue, bg: "var(--ji-green)", label: "JI Fees" },
+              { val: totals.apparelMarkupTotal, bg: "#6ee7b7", label: "Apprl Mkup" },
             ].map((seg, i) => {
               const pct = (seg.val / totals.revenue) * 100;
               return pct > 0.5 ? (
-                <div key={i} className={`${seg.color} flex items-center justify-center transition-all`}
-                  style={{ width: `${pct}%` }} title={`${seg.label}: ${fmt(seg.val)} (${fmtPct(pct)})`}>
-                  {pct > 7 ? `${seg.label} ${fmtPct(pct)}` : ""}
+                <div key={i} style={{
+                  width: `${pct}%`,
+                  background: seg.bg,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "width 0.2s",
+                  overflow: "hidden",
+                  whiteSpace: "nowrap",
+                }} title={`${seg.label}: ${fmt(seg.val)} (${fmtPct(pct)})`}>
+                  {pct > 8 ? `${seg.label} ${fmtPct(pct)}` : ""}
                 </div>
               ) : null;
             })}
           </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2.5 text-xs">
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-500" /> Fund {fmt(totals.fundPayout)}</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-500" /> Client {fmt(totals.clientFeeTotal)}</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gray-400" /> Apparel {fmt(totals.rawApparelCost)}</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-red-400" /> Deco COGS {fmt(totals.decoCogTotal)}</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-teal-500" /> Deco Profit {fmt(totals.decoProfitTotal)}</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-600" /> JI Fees+Markup {fmt(totals.jiFeeRevenue + totals.apparelMarkupTotal)}</span>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2" style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            <span className="flex items-center gap-1"><span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--fund-amber)", display: "inline-block" }} /> Fund {fmt(totals.fundPayout)}</span>
+            <span className="flex items-center gap-1"><span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--client-blue)", display: "inline-block" }} /> Client {fmt(totals.clientFeeTotal)}</span>
+            <span className="flex items-center gap-1"><span style={{ width: 8, height: 8, borderRadius: 2, background: "#64748b", display: "inline-block" }} /> Apparel {fmt(totals.rawApparelCost)}</span>
+            <span className="flex items-center gap-1"><span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--warn-red)", display: "inline-block" }} /> Deco COGS {fmt(totals.decoCogTotal)}</span>
+            <span className="flex items-center gap-1"><span style={{ width: 8, height: 8, borderRadius: 2, background: "#14b8a6", display: "inline-block" }} /> Deco Profit {fmt(totals.decoProfitTotal)}</span>
+            <span className="flex items-center gap-1"><span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--ji-green)", display: "inline-block" }} /> JI Fees+Markup {fmt(totals.jiFeeRevenue + totals.apparelMarkupTotal)}</span>
           </div>
         </div>
       )}
+
+      {/* Sticky Performance Bar */}
+      <div className={`sticky-perf-bar ${showStickyBar ? "visible" : ""}`}>
+        <div className="max-w-[1440px] mx-auto flex items-center justify-between gap-6">
+          <div className="flex gap-6 items-center">
+            <div>
+              <span className="kpi-label" style={{ marginRight: 6 }}>Revenue</span>
+              <span className="tnum" style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>{fmt(totals.revenue)}</span>
+            </div>
+            <div>
+              <span className="kpi-label" style={{ marginRight: 6 }}>Profit</span>
+              <span className="tnum" style={{ fontSize: 15, fontWeight: 700, color: "var(--ji-green)" }}>{fmt(totals.jiGross)}</span>
+            </div>
+            <div>
+              <span className="kpi-label" style={{ marginRight: 6 }}>Margin</span>
+              <span className="tnum" style={{ fontSize: 15, fontWeight: 700, color: marginColor(totals.grossMargin) }}>{fmtPct(totals.grossMargin)}</span>
+            </div>
+            <div>
+              <span className="kpi-label" style={{ marginRight: 6 }}>Units</span>
+              <span className="tnum" style={{ fontSize: 15, fontWeight: 700, color: "var(--text-secondary)" }}>{totals.qty}</span>
+            </div>
+            <div>
+              <span className="kpi-label" style={{ marginRight: 6 }}>Avg $/Unit</span>
+              <span className="tnum" style={{ fontSize: 15, fontWeight: 700, color: "var(--text-secondary)" }}>{fmt(totals.avgProfitPerUnit)}</span>
+            </div>
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ji-green)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>JI</span>
+        </div>
+      </div>
     </>
   );
 }

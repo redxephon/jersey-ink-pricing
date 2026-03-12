@@ -32,12 +32,12 @@ const CURRENT_2023 = {
 };
 
 const SCREEN_COLORS = [
-  { bg: "bg-red-50", border: "border-red-200", text: "text-red-700" },
-  { bg: "bg-orange-50", border: "border-orange-200", text: "text-orange-700" },
-  { bg: "bg-yellow-50", border: "border-yellow-200", text: "text-yellow-700" },
-  { bg: "bg-green-50", border: "border-green-200", text: "text-green-700" },
-  { bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-700" },
-  { bg: "bg-purple-50", border: "border-purple-200", text: "text-purple-700" },
+  { color: "#ef4444" },
+  { color: "#f97316" },
+  { color: "#eab308" },
+  { color: "#22c55e" },
+  { color: "#3b82f6" },
+  { color: "#a855f7" },
 ];
 
 function calcPrice(setup, variable, qty, increase) {
@@ -65,6 +65,8 @@ export default function ScreenPrintCalculator() {
   const [quickQty, setQuickQty] = useState(100);
   const [showComparison, setShowComparison] = useState(false);
   const [activeTab, setActiveTab] = useState("card");
+  const [includeFoldBag, setIncludeFoldBag] = useState(false);
+  const [includeFleece, setIncludeFleece] = useState(false);
 
   const updateParam = (idx, field, value) => {
     setParams((prev) => {
@@ -89,14 +91,22 @@ export default function ScreenPrintCalculator() {
     return calcPrice(p.setup, p.variable, quickQty, increase);
   }, [params, quickScreens, quickQty, increase]);
 
-  const quickTotalCost = quickPrice !== null ? quickPrice * quickQty : null;
+  const quickBreakdown = useMemo(() => {
+    if (quickPrice === null) return null;
+    const screenFees = 27.0 * quickScreens;
+    const perUnitAddOns = (includeFoldBag ? 0.45 : 0) + (includeFleece ? 0.50 : 0);
+    const allInPerUnit = quickPrice + perUnitAddOns;
+    const printSubtotal = allInPerUnit * quickQty;
+    const orderTotal = printSubtotal + screenFees;
+    return { screenFees, perUnitAddOns, allInPerUnit, printSubtotal, orderTotal };
+  }, [quickPrice, quickScreens, quickQty, includeFoldBag, includeFleece]);
 
   return (
     <>
       {/* Price Increase Slider */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+      <div className="panel p-4 mb-4">
         <div className="flex items-center gap-4 flex-wrap">
-          <label className="text-sm font-medium text-gray-600 whitespace-nowrap">Price Increase</label>
+          <label className="section-label whitespace-nowrap">Price Increase</label>
           <input
             type="range"
             min={-20}
@@ -104,35 +114,46 @@ export default function ScreenPrintCalculator() {
             step={1}
             value={increase}
             onChange={(e) => setIncrease(Number(e.target.value))}
-            className="flex-1 min-w-32 accent-blue-400"
+            className="rf-slider flex-1 min-w-32"
           />
-          <span className="font-bold text-xl text-slate-800 w-16 text-right tabular-nums">
+          <span className="panel-elevated tnum px-3 py-1.5" style={{
+            fontSize: 14,
+            fontWeight: 700,
+            color: increase > 0 ? "var(--ji-green)" : increase < 0 ? "var(--warn-red)" : "var(--text-secondary)",
+            borderRadius: "var(--radius-sm)",
+          }}>
             {increase}%
           </span>
-          <p className="text-xs text-gray-400 w-full">
-            Price = (1 + Increase%) × (Setup$ ÷ Qty + Variable$/Unit)
-          </p>
         </div>
+        <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+          Price = (1 + Increase%) x (Setup$ / Qty + Variable$/Unit)
+        </p>
       </div>
 
       {/* Quick Calculator */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-          Quick Price Check
-        </h2>
-        <div className="flex flex-wrap items-end gap-6">
+      <div className="panel p-4 mb-4">
+        <h2 className="section-label mb-3">Quick Price Check</h2>
+        <div className="flex flex-wrap items-end gap-5">
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Screens (Colors)</label>
-            <div className="flex gap-1">
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Screens (Colors)</label>
+            <div className="flex gap-1.5">
               {[1, 2, 3, 4, 5, 6].map((s) => (
                 <button
                   key={s}
                   onClick={() => setQuickScreens(s)}
-                  className={`w-10 h-10 rounded-lg font-bold text-sm transition-all ${
-                    quickScreens === s
-                      ? `${SCREEN_COLORS[s - 1].bg} ${SCREEN_COLORS[s - 1].text} ${SCREEN_COLORS[s - 1].border} border-2 shadow-sm`
-                      : "bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200"
-                  }`}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: "var(--radius-sm)",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    border: quickScreens === s ? `2px solid ${SCREEN_COLORS[s - 1].color}` : "1px solid var(--border-medium)",
+                    background: quickScreens === s ? "var(--bg-deep)" : "var(--bg-surface)",
+                    color: quickScreens === s ? SCREEN_COLORS[s - 1].color : "var(--text-muted)",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
                 >
                   {s}
                 </button>
@@ -140,45 +161,86 @@ export default function ScreenPrintCalculator() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Quantity</label>
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Quantity</label>
             <input
               type="number"
               min={1}
               value={quickQty}
               onChange={(e) => setQuickQty(Math.max(1, Number(e.target.value)))}
-              className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-center font-medium focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none"
+              className="field-editable"
+              style={{ width: 100, padding: "7px 10px", textAlign: "center", fontSize: 14, fontWeight: 600 }}
             />
           </div>
           <div className="flex-1" />
-          {quickPrice !== null && (
-            <div className="flex gap-8 items-end">
-              <div className="text-right">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">Per Unit</div>
-                <div className="text-3xl font-bold text-slate-800 tabular-nums">
-                  {formatPrice(quickPrice)}
-                </div>
+          <div className="flex items-center gap-4" style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
+              Screen Fee: {formatPrice(27.0 * quickScreens)}
+            </span>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeFoldBag}
+                onChange={(e) => setIncludeFoldBag(e.target.checked)}
+                className="rf-check"
+              />
+              Fold & Bag (+$0.45/ea)
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeFleece}
+                onChange={(e) => setIncludeFleece(e.target.checked)}
+                className="rf-check"
+              />
+              Fleece (+$0.50/ea)
+            </label>
+          </div>
+        </div>
+        {quickBreakdown !== null && (
+          <div className="flex gap-6 items-end mt-4 flex-wrap">
+            <div className="panel-inset p-3 text-right">
+              <div className="kpi-label mb-1">Per Unit</div>
+              <div className="kpi-value" style={{ color: "var(--ji-green)" }}>
+                {formatPrice(quickBreakdown.allInPerUnit)}
               </div>
-              <div className="text-right">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">
-                  Total ({quickQty} units)
+              {quickBreakdown.perUnitAddOns > 0 && (
+                <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                  {formatPrice(quickPrice)} print
+                  {includeFoldBag && " +$0.45 f&b"}
+                  {includeFleece && " +$0.50 fleece"}
                 </div>
-                <div className="text-2xl font-semibold text-slate-600 tabular-nums">
-                  {formatPrice(quickTotalCost)}
-                </div>
+              )}
+            </div>
+            <div className="text-right">
+              <div className="kpi-label">Screen Fees</div>
+              <div className="tnum" style={{ fontSize: 22, fontWeight: 600, color: "var(--text-primary)" }}>
+                {formatPrice(quickBreakdown.screenFees)}
               </div>
-              <div className="text-right">
-                <div className="text-xs text-gray-400 uppercase tracking-wider">Setup + Variable</div>
-                <div className="text-sm text-gray-500 tabular-nums leading-relaxed">
-                  ${params[quickScreens - 1].setup.toFixed(2)} ÷ {quickQty} ={" "}
-                  <span className="font-medium">
-                    ${(params[quickScreens - 1].setup / quickQty).toFixed(4)}
-                  </span>
-                  <br />+ ${params[quickScreens - 1].variable.toFixed(4)} variable
-                </div>
+              <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                $27 × {quickScreens} screen{quickScreens > 1 ? "s" : ""}
               </div>
             </div>
-          )}
-        </div>
+            <div className="text-right">
+              <div className="kpi-label">Order Total</div>
+              <div className="tnum" style={{ fontSize: 22, fontWeight: 700, color: "var(--ji-green)" }}>
+                {formatPrice(quickBreakdown.orderTotal)}
+              </div>
+              <div className="tnum" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                {quickQty} units
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="kpi-label">Setup + Variable</div>
+              <div className="tnum" style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                ${params[quickScreens - 1].setup.toFixed(2)} / {quickQty} ={" "}
+                <span style={{ color: "var(--text-secondary)" }}>
+                  ${(params[quickScreens - 1].setup / quickQty).toFixed(4)}
+                </span>
+                <br />+ ${params[quickScreens - 1].variable.toFixed(4)} variable
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tab Switcher */}
@@ -190,23 +252,20 @@ export default function ScreenPrintCalculator() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === tab.id
-                ? "bg-slate-800 text-white shadow-sm"
-                : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
-            }`}
+            className={activeTab === tab.id ? "btn-active" : "btn"}
+            style={{ padding: "6px 16px", fontSize: 12, borderRadius: "var(--radius-sm)", border: activeTab === tab.id ? "1px solid var(--ji-green)" : "1px solid var(--border-medium)", background: activeTab === tab.id ? "var(--bg-deep)" : "var(--bg-surface)", color: activeTab === tab.id ? "var(--ji-green)" : "var(--text-muted)", cursor: "pointer", fontWeight: activeTab === tab.id ? 600 : 400 }}
           >
             {tab.label}
           </button>
         ))}
         <div className="flex-1" />
         {activeTab === "card" && (
-          <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer select-none">
+          <label className="flex items-center gap-2 cursor-pointer select-none" style={{ fontSize: 12, color: "var(--text-muted)" }}>
             <input
               type="checkbox"
               checked={showComparison}
               onChange={(e) => setShowComparison(e.target.checked)}
-              className="rounded accent-blue-500"
+              className="rf-check"
             />
             Show % change from 2023
           </label>
@@ -215,60 +274,42 @@ export default function ScreenPrintCalculator() {
 
       {/* Rate Card */}
       {activeTab === "card" && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-4">
+        <div className="panel overflow-hidden mb-4">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="rf-table">
               <thead>
-                <tr className="bg-slate-800">
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider w-20">
-                    Screens
-                  </th>
+                <tr>
+                  <th style={{ textAlign: "left", paddingLeft: 12, width: 70 }}>Screens</th>
                   {QTY_TIERS.map((tier) => (
-                    <th
-                      key={tier.label}
-                      className="px-2 py-3 text-center text-xs font-semibold text-white uppercase tracking-wider"
-                    >
-                      {tier.label}
-                    </th>
+                    <th key={tier.label} style={{ textAlign: "center" }}>{tier.label}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {rateCard.map((row, si) => (
-                  <tr key={si} className={`${SCREEN_COLORS[si].bg} border-b border-gray-100`}>
-                    <td
-                      className={`px-3 py-3 font-bold ${SCREEN_COLORS[si].text} text-center text-base`}
-                    >
+                  <tr key={si} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                    <td style={{ paddingLeft: 12, fontWeight: 700, color: SCREEN_COLORS[si].color, textAlign: "center", fontSize: 15 }}>
                       {si + 1}
                     </td>
                     {row.map((price, qi) => {
                       const old2023 = CURRENT_2023[si + 1][qi];
-                      const pctChange =
-                        price !== null && old2023 !== null
-                          ? ((price - old2023) / old2023) * 100
-                          : null;
+                      const pctChange = price !== null && old2023 !== null ? ((price - old2023) / old2023) * 100 : null;
 
                       return (
-                        <td key={qi} className="px-2 py-3 text-center">
+                        <td key={qi} style={{ textAlign: "center", padding: "8px 6px" }}>
                           {price === null ? (
-                            <span className="text-red-500 font-bold text-xs">CALL</span>
+                            <span style={{ color: "var(--warn-red)", fontSize: 10, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>CALL</span>
                           ) : (
                             <div>
-                              <div className="font-semibold text-gray-800 tabular-nums">
+                              <div className="tnum" style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: 13 }}>
                                 {formatPrice(price)}
                               </div>
                               {showComparison && pctChange !== null && (
-                                <div
-                                  className={`text-xs tabular-nums mt-0.5 ${
-                                    pctChange > 20
-                                      ? "text-red-500"
-                                      : pctChange > 0
-                                      ? "text-orange-500"
-                                      : pctChange > -5
-                                      ? "text-gray-400"
-                                      : "text-green-600"
-                                  }`}
-                                >
+                                <div className="tnum" style={{
+                                  fontSize: 10,
+                                  marginTop: 2,
+                                  color: pctChange > 20 ? "var(--warn-red)" : pctChange > 0 ? "var(--fund-amber)" : pctChange > -5 ? "var(--text-muted)" : "var(--ji-green)",
+                                }}>
                                   {formatPct(pctChange)}
                                 </div>
                               )}
@@ -287,63 +328,47 @@ export default function ScreenPrintCalculator() {
 
       {/* Parameters Panel */}
       {activeTab === "params" && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4">
+        <div className="panel p-4 mb-4">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
-                Cost Parameters Per Screen Count
-              </h2>
-              <p className="text-xs text-gray-400 mt-1">
+              <h2 className="section-label">Cost Parameters Per Screen Count</h2>
+              <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
                 Setup$ = fixed cost amortized over quantity | Variable$/Unit = per-unit floor cost
               </p>
             </div>
             <button
               onClick={() => setParams(initParams)}
-              className="text-xs px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
+              className="btn"
+              style={{ fontSize: 12, padding: "5px 14px" }}
             >
               Reset to Fitted
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {params.map((p, i) => (
-              <div
-                key={i}
-                className={`${SCREEN_COLORS[i].bg} ${SCREEN_COLORS[i].border} border rounded-lg p-4`}
-              >
-                <div className={`font-bold ${SCREEN_COLORS[i].text} mb-3`}>
+              <div key={i} className="panel-elevated p-4">
+                <div style={{ fontWeight: 700, color: SCREEN_COLORS[i].color, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: "var(--radius-sm)", background: SCREEN_COLORS[i].color, display: "inline-block" }} />
                   {p.screens} Screen{p.screens > 1 ? "s" : ""}
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-gray-500 w-16">Setup $</label>
-                    <input
-                      type="number"
-                      step={1}
-                      value={p.setup}
-                      onChange={(e) => updateParam(i, "setup", e.target.value)}
-                      className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm text-center font-medium focus:ring-2 focus:ring-blue-400 outline-none"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-gray-500 w-16">Var $/u</label>
-                    <input
-                      type="number"
-                      step={0.01}
-                      value={p.variable}
-                      onChange={(e) => updateParam(i, "variable", e.target.value)}
-                      className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm text-center font-medium focus:ring-2 focus:ring-blue-400 outline-none"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-gray-500 w-16">Min Qty</label>
-                    <input
-                      type="number"
-                      step={1}
-                      value={p.minQty}
-                      onChange={(e) => updateParam(i, "minQty", e.target.value)}
-                      className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm text-center font-medium focus:ring-2 focus:ring-blue-400 outline-none"
-                    />
-                  </div>
+                <div className="space-y-2.5">
+                  {[
+                    { label: "Setup $", field: "setup", step: 1 },
+                    { label: "Var $/u", field: "variable", step: 0.01 },
+                    { label: "Min Qty", field: "minQty", step: 1 },
+                  ].map(({ label, field, step }) => (
+                    <div key={field} className="flex items-center gap-2">
+                      <label style={{ fontSize: 12, color: "var(--text-muted)", width: 52, fontWeight: 500 }}>{label}</label>
+                      <input
+                        type="number"
+                        step={step}
+                        value={p[field]}
+                        onChange={(e) => updateParam(i, field, e.target.value)}
+                        className="field-editable"
+                        style={{ flex: 1, padding: "5px 8px", textAlign: "center", fontSize: 13, fontWeight: 600 }}
+                      />
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -352,11 +377,9 @@ export default function ScreenPrintCalculator() {
       )}
 
       {/* Additional Fees */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-          Additional Fees & Notes
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-1.5 text-sm">
+      <div className="panel p-4">
+        <h2 className="section-label mb-3">Additional Fees & Notes</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1" style={{ fontSize: 13 }}>
           {[
             ["Screen Fee", "$27.00 /screen"],
             ["Screen Set-up (Reorder <1yr)", "$7.00 /screen"],
@@ -370,9 +393,9 @@ export default function ScreenPrintCalculator() {
             ["Minimum Order", "12 pieces"],
             ["Turnaround", "2-3 weeks"],
           ].map(([label, value]) => (
-            <div key={label} className="flex justify-between py-1 border-b border-gray-50">
-              <span className="text-gray-500">{label}</span>
-              <span className="font-medium text-gray-800">{value}</span>
+            <div key={label} className="flex justify-between py-1.5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+              <span style={{ color: "var(--text-muted)" }}>{label}</span>
+              <span className="tnum" style={{ fontWeight: 600, color: "var(--text-secondary)" }}>{value}</span>
             </div>
           ))}
         </div>
